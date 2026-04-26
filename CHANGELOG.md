@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.0.0-alpha5 — UI was slow, preset menu fix, IMEI section (2026-04-26)
+
+### Performance
+- **Screenshot mode no longer blocks the UI thread.** flip() now only
+  reads /dev/fb0 (cheap) and hands the bytes to a daemon worker thread
+  for RGB conversion + rotate + PNG encode. If the worker is busy, the
+  next shot is dropped (logged as "queue full"). Rate-limit raised
+  from 1s to 2s. zlib level lowered from 6 to 1. The user reported
+  multi-second lag per click in alpha4 - that's gone.
+- Queue depth is 3, so a burst of fast screen changes still gets all
+  three shots; only sustained spam drops frames.
+
+### UI
+- **Preset menu: description no longer overlaps CUSTOM.** alpha4
+  pinned the description in a fixed slot above the footer; with the
+  larger FONT_BODY of 28 the third list item collided with the
+  description text. Now the description is rendered *inside* the
+  highlighted row as a smaller indented sub-line, so non-selected rows
+  stay short and there is never any overlap.
+
+### Docs
+- README has a new IMEI-Changer section explaining the rotate flow
+  (radio off -> Blue Merle rotate -> radio on) and the OPSEC/OPDEC
+  caveats around IMEI rotation alone (SIM swap, location change,
+  MAC/BT-addr randomization).
+
 ## 2.0.0-alpha4 — Auto-screenshot mode + remove fake Pager-GPS (2026-04-26)
 
 ### New

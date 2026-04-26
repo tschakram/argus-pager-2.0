@@ -5,12 +5,18 @@ Activated by setting the env var ``ARGUS_SCREENSHOTS=1`` (and optionally
 
 How it works:
 - ``install(pager)`` monkey-patches ``pager.flip()`` so every frame the
-  framebuffer is sampled. Reads ``/dev/fb0`` (RGB565), rotates back to
-  landscape, writes a PNG with stdlib only.
-- Rate-limit: at most one PNG per second within the same screen.
+  framebuffer can be sampled. The foreground call only reads
+  ``/dev/fb0`` (~213 KB - fast) and hands the raw bytes to a daemon
+  worker thread for RGB565->RGB888 conversion + rotate + PNG encode.
+  This keeps the UI responsive on mipsel - the heavy work is offloaded
+  and rate-limited; if the queue is full the new shot is just dropped.
+- Rate-limit: at most one PNG per ``min_period`` seconds within the
+  same screen (default 2s). Forced shots at screen boundaries bypass
+  the rate-limit but still go through the queue (and may be dropped
+  if the worker is backed up).
 - ``mark_screen(name)`` sets a force-flag plus the screen name; the
-  next ``flip`` after that always shoots regardless of rate-limit.
-  ``main.py`` calls this before invoking each screen handler.
+  next ``flip`` after that always tries to shoot regardless of
+  rate-limit. ``main.py`` calls this before invoking each handler.
 
 The result is a numbered PNG sequence under
 ``/root/loot/argus/screenshots/<sessionid>/`` showing every distinct
@@ -21,8 +27,10 @@ state the user sees. Pull them off with::
 from __future__ import annotations
 
 import os
+import queue
 import struct
 import sys
+import threading
 import time
 import zlib
 from pathlib import Path
@@ -31,18 +39,23 @@ _FB = "/dev/fb0"
 _DEFAULT_W = 222          # native portrait
 _DEFAULT_H = 480
 _ROTATE_DEG = 270         # back to landscape (matches set_rotation(270))
+_QUEUE_DEPTH = 3          # max pending PNGs - extra shots are dropped
 
 _state = {
     "enabled":     False,
     "dir":         None,
     "seq":         0,
     "last_ts":     0.0,
-    "min_period":  1.0,    # seconds between auto-shots within a screen
+    "min_period":  2.0,    # seconds between auto-shots within a screen
     "force_next":  False,
     "screen":      "init",
     "fb_w":        _DEFAULT_W,
     "fb_h":        _DEFAULT_H,
+    "dropped":     0,
 }
+
+_jobs: "queue.Queue | None" = None
+_worker: threading.Thread | None = None
 
 
 def _log(msg: str) -> None:
@@ -55,6 +68,7 @@ def is_enabled() -> bool:
 
 def install(pager, *, base_dir: str | None = None) -> None:
     """Wire up screenshot capture if ARGUS_SCREENSHOTS is truthy."""
+    global _jobs, _worker
     if not os.environ.get("ARGUS_SCREENSHOTS"):
         return
     out = Path(
@@ -80,7 +94,13 @@ def install(pager, *, base_dir: str | None = None) -> None:
     except Exception:
         pass
 
-    _log(f"enabled, writing to {out} (fb {_state['fb_w']}x{_state['fb_h']})")
+    # Background worker - flip() must return fast on mipsel, so encode happens here.
+    _jobs = queue.Queue(maxsize=_QUEUE_DEPTH)
+    _worker = threading.Thread(target=_worker_loop, daemon=True, name="argus-shot")
+    _worker.start()
+
+    _log(f"enabled, writing to {out} (fb {_state['fb_w']}x{_state['fb_h']}), "
+         f"period={_state['min_period']}s, queue={_QUEUE_DEPTH}")
 
     # monkey-patch flip
     original_flip = pager.flip
@@ -117,18 +137,40 @@ def _maybe_shot() -> None:
     seq    = _state["seq"]
     screen = _state["screen"]
     out    = _state["dir"] / f"{seq:03d}_{screen}.png"
-    _dump_fb(out)
 
-
-def _dump_fb(path: Path) -> None:
+    # Foreground: just snapshot the framebuffer bytes. Cheap.
     w = _state["fb_w"]
     h = _state["fb_h"]
-    expected = w * h * 2
-    with open(_FB, "rb") as f:
-        raw = f.read(expected)
-    rgb = _rgb565_to_rgb888(raw)
-    rgb, w2, h2 = _rotate(rgb, w, h, _ROTATE_DEG)
-    _write_png(str(path), w2, h2, rgb)
+    try:
+        with open(_FB, "rb") as f:
+            raw = f.read(w * h * 2)
+    except Exception as exc:
+        _log(f"fb read failed: {exc}")
+        return
+
+    # Hand off to the writer thread. If the queue is full, drop this shot
+    # so flip() never blocks.
+    try:
+        _jobs.put_nowait((str(out), raw, w, h))
+    except queue.Full:
+        _state["dropped"] += 1
+        if _state["dropped"] % 10 == 1:
+            _log(f"queue full - dropped {_state['dropped']} shot(s) so far")
+
+
+def _worker_loop() -> None:
+    """Encode PNGs off the UI thread."""
+    while True:
+        item = _jobs.get()
+        if item is None:
+            return
+        path, raw, w, h = item
+        try:
+            rgb = _rgb565_to_rgb888(raw)
+            rgb, w2, h2 = _rotate(rgb, w, h, _ROTATE_DEG)
+            _write_png(path, w2, h2, rgb)
+        except Exception as exc:
+            _log(f"encode failed for {path}: {exc}")
 
 
 # encoding helpers (kept inline so this module has zero deps beyond stdlib)
@@ -180,7 +222,8 @@ def _write_png(path: str, w: int, h: int, rgb888: bytes) -> None:
     for y in range(h):
         raw.append(0)
         raw += rgb888[y * stride:(y + 1) * stride]
-    idat = zlib.compress(bytes(raw), level=6)
+    # zlib level 1 - we want speed, not minimal file size
+    idat = zlib.compress(bytes(raw), level=1)
     with open(path, "wb") as f:
         f.write(sig)
         f.write(chunk(b"IHDR", ihdr))

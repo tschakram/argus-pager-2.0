@@ -48,6 +48,36 @@ systemweite Sensoren — du kriegst Alarme auch wenn gerade kein Scan läuft.
 
 ---
 
+## IMEI-Changer (OPSEC/OPDEC)
+
+Wenn ein Scan einen IMSI-Catcher oder eine andere starke Bedrohung findet, wird
+dein Modem (also: deine **IMEI**) potenziell schon erfasst. Eine erfasste IMEI
+gilt netzweit — der Operator kann dich über die Cell-Towers korrelieren, auch
+wenn du SIM oder Standort wechselst.
+
+argus bietet deshalb am Ende jeder Scan-Session eine **opt-in IMEI-Rotation**
+über [Blue Merle](https://github.com/srlabs/blue-merle) auf dem Mudi V2:
+
+1. **Radio off** (`AT+CFUN=4`) — verhindert dass die alte IMEI noch leakt
+2. **Rotate** — Blue Merle generiert eine neue IMEI (deterministisch aus
+   IMSI-Hash, optional pseudo-random)
+3. **Radio on** (`AT+CFUN=1`) — neue IMEI ist live
+
+Sichtbar als Schritt **4/4** im Post-Scan: `[A] Rotate` rotiert, `[B] Keep`
+behält die aktuelle IMEI. Die Sequenz dauert je nach Modem 10–30 s.
+
+**OPDEC-Hinweis:** IMEI-Wechsel allein hilft nicht gegen alle Korrelations-
+Vektoren. Wer auch *operationale Sicherheit* (OPSEC) ernst nimmt, kombiniert
+Rotation mit:
+
+- **SIM-Swap im selben Schritt** (Modem ist schon im Radio-off-State)
+- **Standortwechsel** zwischen alter und neuer IMEI (sonst kann ein passiver
+  Beobachter die Übergabe am gleichen Cell-Tower mitloggen)
+- **MAC-Randomisierung am Pager** (Linux native auf den WLAN-Interfaces)
+- **Bluetooth-Adapter-Adresse** rotieren falls längerfristig in einem Raum
+
+---
+
 ## Bedienanleitung
 
 ### Tastenbelegung
