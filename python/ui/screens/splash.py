@@ -38,21 +38,21 @@ def run(pager, state) -> str:
     pager.flip()
     T.led_state(pager, "init")
 
-    # ── Sensor self-check ────────────────────────────────────────────
+    # Sensor self-check. The Pager itself has NO internal GPS - the only
+    # GPS is a u-blox USB dongle attached to the Mudi V2. So we don't try
+    # to test for /dev/ttyACM0 on the pager (it never exists there).
     _log("sensor check: WiFi monitor")
     checks = []
     checks.append(("WiFi monitor",   _check_wlan_mon()))
     _log("sensor check: Bluetooth")
     checks.append(("Bluetooth",      _check_btmon()))
-    _log("sensor check: Pager GPS")
-    checks.append(("Pager GPS",      _check_pager_gps()))
     _log("sensor check: Mudi backend (this can hang on SSH)")
     try:
         mudi_ok = mudi_client.is_reachable(state["config"])
     except Exception as exc:
         _log(f"mudi check failed: {exc}")
         mudi_ok = False
-    checks.append(("Mudi backend",   mudi_ok))
+    checks.append(("Mudi (GPS+Cell)", mudi_ok))
     _log(f"sensor checks done: {checks}")
 
     state["sensor_status"] = dict(checks)
@@ -84,10 +84,3 @@ def _check_btmon() -> bool:
     return bool(shutil.which("btmon"))
 
 
-def _check_pager_gps() -> bool:
-    # placeholder — pager has internal GPS, we verify via gpsd or /dev path
-    import os
-    for p in ("/dev/ttyACM0", "/dev/ttyACM1", "/var/run/gpsd.sock"):
-        if os.path.exists(p):
-            return True
-    return False

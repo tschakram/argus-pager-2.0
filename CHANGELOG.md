@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.0.0-alpha4 — Auto-screenshot mode + remove fake Pager-GPS (2026-04-26)
+
+### New
+- **Auto-screenshot mode** - set `ARGUS_SCREENSHOTS=1` (env var or in
+  `payload.sh`) and every distinct UI state is dumped to
+  `/root/loot/argus/screenshots/<sessionid>/<seq>_<screen>.png`.
+  Implemented as a monkey-patch over `pager.flip()` with a 1s rate-limit
+  inside the same screen and a force-flag at every screen boundary.
+  `post_scan` is instrumented per sub-step so each step gets a named PNG.
+- `tools/screenshot.sh` - shell wrapper that sets `PATH` /
+  `LD_LIBRARY_PATH` so `python3` finds `libpython3.11.so` over SSH.
+  Replaces the unreliable inline `ssh pager 'python3 ...'` call.
+- `tools/pull_screenshots.sh` - pulls the most recent screenshot
+  session off the pager via `scp -r`.
+
+### Bugfix
+- **Pager has no internal GPS** - removed the fake `Pager GPS` self-check
+  in `splash` (was checking for `/dev/ttyACM0` on the pager, which never
+  exists; the GPS dongle sits on the Mudi). Splash now reports
+  `Mudi (GPS+Cell)` as one combined check.
+- `gps_pager` removed from all presets and from the scan-config toggle
+  list. The remaining `GPS (Mudi)` toggle is the only GPS source.
+
 ## 2.0.0-alpha3 — Layout buffer, screenshot tool, README rewrite (2026-04-26)
 
 ### Bugfixes

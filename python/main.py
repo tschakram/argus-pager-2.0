@@ -40,7 +40,7 @@ for _name in ("BTN_A", "BTN_B", "BTN_UP", "BTN_DOWN", "BTN_LEFT", "BTN_RIGHT", "
 _log("import: ui + core")
 from ui import theme
 from ui.screens import splash, preset_menu, scan_config, scan_live, post_scan, report_view
-from core import presets
+from core import presets, screenshot
 
 PAYLOAD_DIR = Path(os.environ.get("ARGUS_PAYLOAD_DIR", Path(__file__).resolve().parent.parent))
 CONFIG_PATH = PAYLOAD_DIR / "config.json"
@@ -81,6 +81,10 @@ def main() -> int:
     pager.screen_on()
     _log("theme.init")
     theme.init(pager, config)
+    # Optional auto-screenshot (env: ARGUS_SCREENSHOTS=1). Hooks pager.flip().
+    screenshot.install(pager)
+    if screenshot.is_enabled():
+        _log("screenshot mode ENABLED")
 
     state: dict = {
         "config":  config,
@@ -97,9 +101,10 @@ def main() -> int:
             if handler is None:
                 print(f"unknown screen: {next_screen!r}", file=sys.stderr, flush=True)
                 break
-            _log(f"→ enter screen: {next_screen}")
+            _log(f"-> enter screen: {next_screen}")
+            screenshot.mark_screen(next_screen)
             next_screen = handler(pager, state)
-            _log(f"← exit screen, next={next_screen!r}")
+            _log(f"<- exit screen, next={next_screen!r}")
     except KeyboardInterrupt:
         pass
     except Exception:  # pragma: no cover

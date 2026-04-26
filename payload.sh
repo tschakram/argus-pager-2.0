@@ -39,6 +39,12 @@ export LD_LIBRARY_PATH="/mmc/root/lib/pagerctl:/mmc/usr/lib:/mmc/lib:${LD_LIBRAR
 export PYTHONPATH="$PAYLOAD_DIR/python:/mmc/root/lib/pagerctl:${PYTHONPATH:-}"
 export ARGUS_PAYLOAD_DIR="$PAYLOAD_DIR"
 
+# Auto-screenshot mode: set to 1 here (or pre-export the env-var) to capture
+# every distinct UI state to /root/loot/argus/screenshots/<timestamp>/.
+# Pull them off afterwards with `tools/pull_screenshots.sh`.
+: "${ARGUS_SCREENSHOTS:=0}"
+export ARGUS_SCREENSHOTS
+
 # ── Pre-flight ──────────────────────────────────────────────────────────
 for bin in python3 tcpdump iw btmon; do
     command -v "$bin" >/dev/null 2>&1 || { echo "PRE-FLIGHT FAIL: missing $bin"; exit 1; }

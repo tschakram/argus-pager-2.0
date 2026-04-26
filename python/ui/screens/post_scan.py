@@ -12,7 +12,7 @@ import time
 
 from .. import theme as T
 from .. import widgets as W
-from core import post_scan as core_post
+from core import post_scan as core_post, screenshot
 
 try:
     from pagerctl import BTN_A, BTN_B, BTN_POWER
@@ -27,26 +27,32 @@ def run(pager, state) -> str | None:
     cfg = state["config"]
     results: dict[str, str] = {}
 
-    # Step 1 — Silent-SMS
+    # Step 1: Silent-SMS
+    screenshot.mark_screen("post_scan_1_sms")
     _step_header(pager, 1, "Silent-SMS check")
     sms = core_post.silent_sms_check(cfg)
     results["sms"] = sms
+    screenshot.mark_screen("post_scan_1_sms_result")
     _step_result(pager, "Silent-SMS", sms)
     if _wait_a(pager) == "exit":
         return None
 
-    # Step 2 — IMSI summary
+    # Step 2: IMSI summary
+    screenshot.mark_screen("post_scan_2_imsi")
     _step_header(pager, 2, "IMSI alerts (last 2h)")
     imsi = core_post.imsi_summary(cfg)
     results["imsi"] = imsi
+    screenshot.mark_screen("post_scan_2_imsi_result")
     _step_result(pager, "IMSI", imsi)
     if _wait_a(pager) == "exit":
         return None
 
-    # Step 3 — OpenCelliD upload
+    # Step 3: OpenCelliD upload
+    screenshot.mark_screen("post_scan_3_upload")
     _step_header(pager, 3, "OpenCelliD upload")
     queued = core_post.upload_queue_count(cfg)
     if queued > 0:
+        screenshot.mark_screen("post_scan_3_upload_ask")
         if _ask_yes_no(pager, f"{queued} measurements queued",
                        "[A] Upload   [B] Skip"):
             up_ok, up_fail = core_post.opencellid_upload(cfg)
@@ -55,18 +61,22 @@ def run(pager, state) -> str | None:
             results["upload"] = "skipped"
     else:
         results["upload"] = "queue empty"
+    screenshot.mark_screen("post_scan_3_upload_result")
     _step_result(pager, "Upload", results["upload"])
     if _wait_a(pager) == "exit":
         return None
 
-    # Step 4 — IMEI rotation
+    # Step 4: IMEI rotation
+    screenshot.mark_screen("post_scan_4_imei")
     _step_header(pager, 4, "IMEI rotation")
+    screenshot.mark_screen("post_scan_4_imei_ask")
     if _ask_yes_no(pager, "Rotate IMEI before next scan?",
                    "[A] Rotate   [B] Keep"):
         rot = core_post.imei_rotate(cfg)
         results["imei"] = rot
     else:
         results["imei"] = "kept"
+    screenshot.mark_screen("post_scan_4_imei_result")
     _step_result(pager, "IMEI", results["imei"])
     if _wait_a(pager) == "exit":
         return None

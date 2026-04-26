@@ -23,7 +23,7 @@
     "STANDARD": {
       "rounds": 4, "duration_s": 90,
       "wifi": true, "bt": true,
-      "gps_pager": true, "gps_mudi": true,
+      "gps_mudi": true,
       "cell": true, "cross_report": true,
       "cameras": false, "shodan": false,
       "imsi_watch": true, "sms_watch": true
@@ -31,7 +31,7 @@
     "DEEPSCAN": {
       "rounds": 6, "duration_s": 120,
       "wifi": true, "bt": true,
-      "gps_pager": true, "gps_mudi": true,
+      "gps_mudi": true,
       "cell": true, "cross_report": true,
       "cameras": true, "shodan": true,
       "imsi_watch": true, "sms_watch": true
@@ -39,7 +39,7 @@
     "CUSTOM": {
       "rounds": 3, "duration_s": 60,
       "wifi": true, "bt": true,
-      "gps_pager": true, "gps_mudi": false,
+      "gps_mudi": false,
       "cell": false, "cross_report": false,
       "cameras": false, "shodan": false,
       "imsi_watch": true, "sms_watch": true

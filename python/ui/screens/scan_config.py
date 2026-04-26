@@ -14,12 +14,13 @@ except ImportError:  # pragma: no cover
     BTN_UP, BTN_DOWN, BTN_LEFT, BTN_RIGHT, BTN_A, BTN_B, BTN_POWER = 1, 2, 4, 8, 16, 32, 64
 
 
-# Order matters — this is how the user navigates
+# Order matters - this is how the user navigates.
+# Note: there is no "GPS Pager" toggle - the pager has no internal GPS,
+# the only GPS source is the u-blox USB dongle on the Mudi.
 TOGGLE_ROWS = [
     ("wifi",         "WiFi"),
     ("bt",           "Bluetooth"),
-    ("gps_pager",    "GPS Pager"),
-    ("gps_mudi",     "GPS Mudi"),
+    ("gps_mudi",     "GPS (Mudi)"),
     ("cell",         "Cell / IMSI"),
     ("cross_report", "Cross-Report"),
     ("cameras",      "Cameras"),

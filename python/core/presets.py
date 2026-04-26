@@ -12,7 +12,7 @@ from __future__ import annotations
 STANDARD: dict = {
     "rounds": 4, "duration_s": 90,
     "wifi": True,  "bt": True,
-    "gps_pager": True, "gps_mudi": True,
+    "gps_mudi": True,
     "cell": True, "cross_report": True,
     "cameras": False, "shodan": False,
     "imsi_watch": True, "sms_watch": True,
@@ -21,7 +21,7 @@ STANDARD: dict = {
 DEEPSCAN: dict = {
     "rounds": 6, "duration_s": 120,
     "wifi": True, "bt": True,
-    "gps_pager": True, "gps_mudi": True,
+    "gps_mudi": True,
     "cell": True, "cross_report": True,
     "cameras": True, "shodan": True,
     "imsi_watch": True, "sms_watch": True,
@@ -30,7 +30,7 @@ DEEPSCAN: dict = {
 CUSTOM: dict = {
     "rounds": 3, "duration_s": 60,
     "wifi": True, "bt": True,
-    "gps_pager": True, "gps_mudi": False,
+    "gps_mudi": False,
     "cell": False, "cross_report": False,
     "cameras": False, "shodan": False,
     "imsi_watch": True, "sms_watch": True,
