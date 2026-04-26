@@ -75,4 +75,6 @@ python/lib/libpagerctl.so
 /argus-shot*.png
 /*.png
 /shot*.png
+screenshots-pulled/
+*.png
 !docs/screenshots/*.png
