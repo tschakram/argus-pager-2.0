@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.0.0-alpha3 — Layout buffer, screenshot tool, README rewrite (2026-04-26)
+
+### Bugfixes
+- **Post-scan layout** — Silent-SMS / IMSI / Upload / IMEI step labels and
+  yes/no questions are now placed at `BODY_Y + FONT_TITLE + 4` so display
+  fonts (Steelfish ascender) can no longer poke up into the screen header.
+  Was the cause of the half-overlapped Silent-SMS title in alpha2 testing.
+- **Body breathing room** — `theme.BODY_Y = HEADER_H + 12` (was +6) gives
+  enough vertical buffer between the divider and any centered title.
+- **Header internals** — ARGUS / title / version baselines pushed down 2px
+  each so display-font ascenders don't clip past the top edge.
+
+### New
+- **`tools/screenshot.py`** - reads `/dev/fb0` directly, decodes RGB565,
+  rotates 270deg back to landscape, writes a PNG with stdlib only.
+  Works while `pagerctl` owns the framebuffer (the Pineapple "Virtual
+  Pager" web preview goes blank during a session - this is the way to
+  capture screens for the README / docs).
+- **Font auto-discovery** - any `*.ttf` dropped into
+  `python/assets/fonts/` is now picked up automatically. Liberation
+  fonts also added to the system search path.
+
+### Docs
+- **README rewrite** - hero block with use-cases up top, "wann benutze
+  ich was" preset table, condensed Bedienanleitung, install snippet,
+  test/debug section. Detail moved out.
+- **`docs/features.md`** - all detectors explained in detail, one
+  section per detector with threat model, detection logic, report
+  output, and config knobs. v2.1 backlog moved here too.
+
 ## 2.0.0-alpha2 — Readability + testability pass (2026-04-26)
 
 ### UX

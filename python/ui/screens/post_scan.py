@@ -78,14 +78,20 @@ def run(pager, state) -> str | None:
 # ── helpers ─────────────────────────────────────────────────────────────
 
 def _step_header(pager, n: int, label: str) -> None:
+    """Render the running-step banner. Layout puts the BIG label safely
+    below the header divider with a full FONT_TITLE of breathing room,
+    so a tall display font (Steelfish ascender etc) cannot poke up into
+    the chrome above.
+    """
     pager.clear(T.BLACK)
     T.header(pager, f"Post-scan: {n}/4")
     if T.FONT_PATH:
-        # vertically center the title above the body, leave a slot for "running..."
-        title_y = T.BODY_Y + 20
+        # Title baseline far enough below the divider that no descender or
+        # display-font ascender can clip into the header area.
+        title_y = T.BODY_Y + T.FONT_TITLE + 4
         pager.draw_ttf_centered(title_y, label, T.ACCENT,
                                 T.FONT_PATH, T.FONT_TITLE)
-        pager.draw_ttf_centered(title_y + T.FONT_TITLE + 8, "running...",
+        pager.draw_ttf_centered(title_y + T.FONT_TITLE + 14, "running...",
                                 T.GREY, T.FONT_PATH, T.FONT_SMALL)
     pager.flip()
 
@@ -100,7 +106,9 @@ def _step_result(pager, label: str, body: str) -> None:
             color = T.RED
         elif "warn" in low or "queue" in low or "rotated" in low:
             color = T.AMBER
-        body_y = T.BODY_Y + 28
+        # Match the title slot used by _step_header so the result lands
+        # in the same visual spot the user just saw the label in.
+        body_y = T.BODY_Y + T.FONT_TITLE + 4
         pager.draw_ttf_centered(body_y, body[:48], color,
                                 T.FONT_PATH, T.FONT_BODY)
     T.footer(pager, [("A", "Continue"), ("B", "Continue")])
@@ -123,13 +131,17 @@ _wait_a = _wait_continue
 
 def _ask_yes_no(pager, question: str, hint: str) -> bool:
     """A = yes, B = no. Both advance the sequence (no 'back' here).
-    POWER also resolves to no, like B."""
+    POWER also resolves to no, like B.
+    Layout: same vertical slots as _step_header / _step_result so the
+    question text replaces the running label cleanly without any glyphs
+    poking back up into the screen header.
+    """
     if T.FONT_PATH:
         pager.fill_rect(0, T.BODY_Y, T.W, T.FOOTER_Y - T.BODY_Y, T.BLACK)
-        q_y = T.BODY_Y + 16
+        q_y = T.BODY_Y + T.FONT_TITLE + 4
         pager.draw_ttf_centered(q_y, question, T.WHITE,
                                 T.FONT_PATH, T.FONT_BODY)
-        pager.draw_ttf_centered(q_y + T.FONT_BODY + 12, hint, T.GREY,
+        pager.draw_ttf_centered(q_y + T.FONT_BODY + 16, hint, T.GREY,
                                 T.FONT_PATH, T.FONT_SMALL)
     pager.flip()
     while True:

@@ -15,10 +15,15 @@ H = 222
 # Layout slots (filled from screens). Sizes follow the FONT_* constants
 # below - if you bump those, recompute HEADER_H / FOOTER_H so the chrome
 # still fits without clipping descenders.
+#
+# Note: pagerctl's draw_ttf y-coordinate behavior differs slightly between
+# draw_ttf() (top-of-glyph) and draw_ttf_centered() (also top-of-glyph but
+# can drift a few pixels with display fonts). We give the body a generous
+# top buffer so headers can never end up overlapping the body title.
 HEADER_Y   = 0
-HEADER_H   = 44          # fits FONT_TITLE=36 with 4px top + 4px bottom padding
+HEADER_H   = 44          # fits FONT_TITLE=36 with top + bottom padding
 DIVIDER_Y  = HEADER_H + 1
-BODY_Y     = HEADER_H + 6
+BODY_Y     = HEADER_H + 12   # 12px breathing room below the divider
 FOOTER_H   = 38          # fits FONT_SMALL=22 with padding
 FOOTER_Y   = H - FOOTER_H
 
@@ -54,7 +59,11 @@ def init(pager, config: dict) -> None:
     _pager = pager
     _config = config
 
-    # locate TTF font (assets/fonts/...)
+    # locate TTF font - explicit `ui.font` from config wins, then any
+    # *.ttf the user dropped into python/assets/fonts/, then the system
+    # paths in priority order (DejaVu first because Steelfish's glyph
+    # coverage is narrow and its italic-display style looks blurry on
+    # the 480x222 LCD).
     payload_dir = Path(os.environ.get(
         "ARGUS_PAYLOAD_DIR",
         Path(__file__).resolve().parents[2],
@@ -66,12 +75,17 @@ def init(pager, config: dict) -> None:
             payload_dir / "python" / "assets" / "fonts" / user_font,
             Path(user_font) if user_font.startswith("/") else None,
         ]
-    # Prefer DejaVu (full Unicode glyph coverage) so non-ASCII characters
-    # render. Steelfish ships with the Pineapple OS but only covers a
-    # narrow ASCII subset, so non-ASCII falls back to '?' glyphs.
+    # Auto-discover any TTF the user dropped into assets/fonts/.
+    asset_fonts_dir = payload_dir / "python" / "assets" / "fonts"
+    if asset_fonts_dir.is_dir():
+        candidates += sorted(asset_fonts_dir.glob("*.ttf"))
+    # System paths - DejaVu is preferred (sharp on 480x222, full Unicode);
+    # Steelfish is the last-resort fallback (italic display font, fuzzy).
     candidates += [
         Path("/usr/share/fonts/ttf-dejavu/DejaVuSansMono.ttf"),
         Path("/usr/share/fonts/ttf-dejavu/DejaVuSans.ttf"),
+        Path("/usr/share/fonts/ttf-liberation/LiberationMono-Regular.ttf"),
+        Path("/usr/share/fonts/ttf-liberation/LiberationSans-Regular.ttf"),
         Path("/usr/share/fonts/TTF/DejaVuSansMono.ttf"),
         Path("/mmc/root/lib/pagerctl/DejaVuSansMono.ttf"),
         Path("/mmc/usr/share/fonts/ttf-dejavu/DejaVuSansMono.ttf"),
@@ -114,10 +128,12 @@ def header(pager, title: str, *, accent=None) -> None:
     if FONT_PATH:
         # Title-row baselines: ARGUS at the title size, the screen name
         # one notch smaller right next to it, version glyph far right.
-        pager.draw_ttf(8, HEADER_Y + 2, "ARGUS", accent, FONT_PATH, FONT_TITLE)
+        # All offsets give the ascenders enough room above so display
+        # fonts don't bleed past the top edge.
+        pager.draw_ttf(8, HEADER_Y + 4, "ARGUS", accent, FONT_PATH, FONT_TITLE)
         title_x = 8 + pager.ttf_width("ARGUS  ", FONT_PATH, FONT_TITLE)
-        pager.draw_ttf(title_x, HEADER_Y + 6, title, WHITE, FONT_PATH, FONT_BODY)
-        pager.draw_ttf_right(HEADER_Y + 8, "v2.0", GREY, FONT_PATH, FONT_SMALL, 8)
+        pager.draw_ttf(title_x, HEADER_Y + 8, title, WHITE, FONT_PATH, FONT_BODY)
+        pager.draw_ttf_right(HEADER_Y + 10, "v2.0", GREY, FONT_PATH, FONT_SMALL, 8)
     else:
         pager.draw_text(8, HEADER_Y + 6, "ARGUS  " + title, accent, size=2)
     pager.hline(0, HEADER_Y + HEADER_H - 1, W, accent)
