@@ -1,0 +1,71 @@
+# ═══════════════════════════════════════════════════════════════
+# argus-pager 2.0 — OPSEC gitignore
+# Files that MUST NEVER end up in the repository
+# Paths are relative to repo root.
+# pre-commit hook (hooks/pre-commit) enforces these rules.
+# ═══════════════════════════════════════════════════════════════
+
+# ── Real configuration (API keys, GPS zones, SSH paths) ───────
+config.json
+python/core/_secrets.py
+
+# ── Personal device lists (real MACs / SSIDs) ─────────────────
+ignore_lists/mac_list.json
+ignore_lists/ssid_list.json
+watch_list.json
+suspects_db.json
+
+# ── Tracking and capture data ─────────────────────────────────
+gps_track.csv
+gps_log.csv
+loot/
+*.kismet
+*.kismet-journal
+*.pcap
+*.pcapng
+bt_scan_*.json
+bt_*.json
+
+# ── OpenCelliD / WiGLE upload + cache ─────────────────────────
+upload_queue/
+upload_queue.json
+oui_cache.json
+wigle_cache.json
+wigle_cell_cache/
+cell_cache/
+
+# ── Reports / persisted state ─────────────────────────────────
+reports/
+imsi_alerts.jsonl
+silent_sms.jsonl
+sms_loopback.jsonl
+rat_history.json
+imsi_monitor_state.json
+silent_sms_seen.json
+
+# ── Logs ──────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Python cache ──────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# ── Editor / OS junk ──────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*.bak
+*.tmp
+.DS_Store
+Thumbs.db
+nul
+
+# ── Local pagerctl copies (use system /mmc/root/lib/pagerctl) ─
+python/lib/pagerctl.py
+python/lib/libpagerctl.so

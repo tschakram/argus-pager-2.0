@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# argus-pager 2.0 — OPSEC pre-commit hook
+# Activate with: git config core.hooksPath hooks
+# Blocks: real GPS coords, real MAC addrs, API keys, forbidden files.
+
+set -e
+
+RED=$'\033[0;31m'; GRN=$'\033[0;32m'; YLW=$'\033[1;33m'; NC=$'\033[0m'
+
+fail=0
+say_block() { echo "${RED}[OPSEC BLOCK]${NC} $*" >&2; fail=1; }
+say_warn()  { echo "${YLW}[OPSEC WARN]${NC} $*" >&2; }
+
+# Files that must never be staged
+FORBIDDEN=(
+  "config.json"
+  "ignore_lists/mac_list.json"
+  "ignore_lists/ssid_list.json"
+  "watch_list.json"
+  "suspects_db.json"
+  "gps_track.csv"
+  "gps_log.csv"
+  "imsi_alerts.jsonl"
+  "silent_sms.jsonl"
+  "rat_history.json"
+)
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+for f in $staged; do
+  for bad in "${FORBIDDEN[@]}"; do
+    [ "$f" = "$bad" ] && say_block "Forbidden file staged: $f"
+  done
+  case "$f" in
+    *.pcap|*.pcapng|*.kismet|*.kismet-journal) say_block "Capture file staged: $f" ;;
+    loot/*|reports/*|logs/*|upload_queue/*|cell_cache/*) say_block "Data dir staged: $f" ;;
+    *.log) say_block "Log file staged: $f" ;;
+  esac
+done
+
+# Scan diff for sensitive content
+diff_content=$(git diff --cached --no-color)
+[ -z "$diff_content" ] && [ "$fail" -eq 0 ] && exit 0
+
+# 1) Real GPS coordinates (anything not 0.0 / 0.000000 / placeholder)
+#    Match patterns "lat": 12.345678 with non-zero non-trivial value
+if echo "$diff_content" | grep -E '^\+' | grep -qE '"(lat|lon|latitude|longitude)"\s*:\s*-?(([1-9][0-9]*\.[0-9]+)|(0\.0*[1-9][0-9]*))'; then
+  # Filter: zero / placeholder allowed
+  if echo "$diff_content" | grep -E '^\+' | grep -qE '"(lat|lon|latitude|longitude)"\s*:\s*-?(([1-9][0-9]*\.[0-9]+)|(0\.0*[1-9][0-9]*))' \
+       | grep -vqE '0\.000000|0\.0$|"lat":\s*0\b|"lon":\s*0\b'; then
+    say_block "Possible real GPS coordinate in diff (use 0.000000 placeholders)"
+  fi
+fi
+
+# 2) Real-looking MAC addresses (XX:XX:XX:XX:XX:XX) — allow only AA:BB:CC:DD:EE:FF / 00:00:..
+if echo "$diff_content" | grep -E '^\+' \
+   | grep -qiE '\b([0-9a-f]{2}:){5}[0-9a-f]{2}\b'; then
+  bad_macs=$(echo "$diff_content" | grep -E '^\+' \
+    | grep -ioE '\b([0-9a-f]{2}:){5}[0-9a-f]{2}\b' \
+    | grep -ivE '^(aa:bb:cc:dd:ee:ff|00:00:00:00:00:00|ff:ff:ff:ff:ff:ff|11:22:33:44:55:66)$' || true)
+  if [ -n "$bad_macs" ]; then
+    say_block "Real-looking MAC address(es) in diff: $bad_macs"
+  fi
+fi
+
+# 3) API keys (WiGLE token, OpenCelliD pf-token, Shodan, Fingerbank)
+key_re='(api[_-]?(key|token)|wigle[_-]?api|opencellid[_-]?key|shodan[_-]?api|fingerbank[_-]?api)'
+if echo "$diff_content" | grep -E '^\+' | grep -iE "$key_re" \
+   | grep -qE '[:=]\s*"[A-Za-z0-9_\-]{12,}"'; then
+  say_block "Possible API key/token in diff"
+fi
+
+# 4) Bearer-token / hex blobs > 32 chars
+if echo "$diff_content" | grep -E '^\+' | grep -qE '\b[A-Fa-f0-9]{40,}\b'; then
+  say_warn "Long hex string detected — verify it isn't a credential"
+fi
+
+# 5) SSH private keys
+# Use -e so leading dashes aren't parsed as options.
+if echo "$diff_content" | grep -qE -e '-----BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY-----'; then
+  say_block "SSH private key in diff"
+fi
+
+if [ "$fail" -ne 0 ]; then
+  echo "" >&2
+  echo "${RED}═══════════════════════════════════════════════════════${NC}" >&2
+  echo "${RED} Commit blocked by OPSEC pre-commit hook.${NC}" >&2
+  echo "${RED} Fix the issues above or use placeholder values.${NC}" >&2
+  echo "${RED}═══════════════════════════════════════════════════════${NC}" >&2
+  exit 1
+fi
+
+echo "${GRN}[OPSEC OK]${NC} pre-commit checks passed."
+exit 0

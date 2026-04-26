@@ -1,0 +1,132 @@
+{
+  "_comment":  "argus-pager 2.0 - Unified Config (Pager + Mudi)",
+  "_comment2": "REAL coordinates / MACs / API keys go ONLY into config.json on the pager.",
+  "_comment3": "config.json is gitignored AND blocked by hooks/pre-commit.",
+
+  "version": "2.0.0",
+
+  "paths": {
+    "base_dir":     "/root/loot/argus",
+    "pcap_dir":     "/root/loot/argus/pcap",
+    "report_dir":   "/root/loot/argus/reports",
+    "log_dir":      "/root/loot/argus/logs",
+    "watch_list":   "/root/loot/argus/watch_list.json",
+    "suspects_db":  "/root/loot/argus/suspects_db.json",
+    "gps_track":    "/root/loot/argus/gps_track.csv",
+    "ignore_lists": {
+      "mac":  "/root/loot/argus/ignore_lists/mac_list.json",
+      "ssid": "/root/loot/argus/ignore_lists/ssid_list.json"
+    }
+  },
+
+  "presets": {
+    "STANDARD": {
+      "rounds": 4, "duration_s": 90,
+      "wifi": true, "bt": true,
+      "gps_pager": true, "gps_mudi": true,
+      "cell": true, "cross_report": true,
+      "cameras": false, "shodan": false,
+      "imsi_watch": true, "sms_watch": true
+    },
+    "DEEPSCAN": {
+      "rounds": 6, "duration_s": 120,
+      "wifi": true, "bt": true,
+      "gps_pager": true, "gps_mudi": true,
+      "cell": true, "cross_report": true,
+      "cameras": true, "shodan": true,
+      "imsi_watch": true, "sms_watch": true
+    },
+    "CUSTOM": {
+      "rounds": 3, "duration_s": 60,
+      "wifi": true, "bt": true,
+      "gps_pager": true, "gps_mudi": false,
+      "cell": false, "cross_report": false,
+      "cameras": false, "shodan": false,
+      "imsi_watch": true, "sms_watch": true
+    }
+  },
+
+  "data_quality": {
+    "_comment": "Minimum scan time / round count after which a feature has enough data.",
+    "cyt_min_seconds":         180,
+    "cross_report_min_rounds": 3,
+    "hotel_min_seconds":       240,
+    "shodan_min_rounds":       2,
+    "camera_min_seconds":      120
+  },
+
+  "deauth": {
+    "_comment":        "Passive 802.11 deauth/disassoc flood detector. Active whenever WiFi is on.",
+    "iface":           "wlan1mon",
+    "window_s":        10,
+    "flood_threshold": 5
+  },
+
+  "search": {
+    "_comment": "WiGLE search bounding box - global default.",
+    "lat_min": -90.0,  "lat_max":  90.0,
+    "lon_min": -180.0, "lon_max": 180.0
+  },
+
+  "wigle": {
+    "enabled":   false,
+    "api_name":  "",
+    "api_token": ""
+  },
+
+  "shodan_api_key":     "",
+  "fingerbank_api_key": "",
+  "opencellid_key":     "",
+  "unwiredlabs": { "token": "" },
+
+  "surveillance": {
+    "persistence_threshold":    0.6,
+    "min_appearances":          3,
+    "stalking_min_persistence": 0.8
+  },
+
+  "watch_list": {
+    "_comment":        "Static known zones - REAL coords ONLY in config.json on pager.",
+    "default_zone_radius_m": 100,
+    "known_zones": [
+      { "name": "Home",   "lat": 0.000000, "lon": 0.000000, "radius_m": 150 },
+      { "name": "Office", "lat": 0.000000, "lon": 0.000000, "radius_m": 100 }
+    ]
+  },
+
+  "mudi": {
+    "host":       "192.168.8.1",
+    "user":       "root",
+    "key":        "/root/.ssh/mudi_key",
+    "python_dir": "/root/raypager/python",
+    "loot_dir":   "/root/loot/raypager"
+  },
+
+  "imsi_monitor": {
+    "interval_s":             30,
+    "ta_weak_rsrp_threshold": -100
+  },
+
+  "silent_sms": {
+    "watch_on_start":   true,
+    "watch_interval_s": 60,
+    "purge_binary":     false
+  },
+
+  "sms_loopback": {
+    "enabled":        false,
+    "test_number":    null,
+    "timeout_s":      180,
+    "latency_warn_s": 30
+  },
+
+  "ui": {
+    "_comment":      "pagerctl theme - Pineapple Pager style (black + green accent).",
+    "_comment_font": "Auto-detected: DejaVuSansMono (full Unicode) preferred, Steelfish as fallback. Override via 'font'.",
+    "brightness":    80,
+    "theme":         "pineapple",
+    "font":          null,
+    "vibrate_on_alert": true,
+    "led_on_alert":     true
+  }
+}
