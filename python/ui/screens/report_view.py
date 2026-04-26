@@ -33,7 +33,10 @@ def run(pager, state) -> str | None:
     if not summary_lines:
         summary_lines = ["no findings"]
 
-    W.threat_card(pager, x=14, y=T.BODY_Y + 10, w=T.W - 28, h=130,
+    # Card fills the body area, leaves 8px breathing room above the footer
+    card_y = T.BODY_Y + 6
+    card_h = T.FOOTER_Y - card_y - 8
+    W.threat_card(pager, x=14, y=card_y, w=T.W - 28, h=card_h,
                   level=level, lines=summary_lines)
 
     T.footer(pager, [("A", "View Report"), ("B", "Exit")])
@@ -58,8 +61,8 @@ def _scroll_report(pager, result: dict, post: dict, preset_name: str) -> None:
     if not lines:
         lines = ["(empty report)"]
 
-    line_h = T.FONT_SMALL + 4
-    visible = (T.FOOTER_Y - T.BODY_Y - 10) // line_h
+    line_h = T.FONT_SMALL + 6
+    visible = max(1, (T.FOOTER_Y - T.BODY_Y - 10) // line_h)
     offset = 0
     max_offset = max(0, len(lines) - visible)
 

@@ -12,13 +12,15 @@ from pathlib import Path
 W = 480
 H = 222
 
-# ── Layout slots (filled from screens) ───────────────────────────────────
+# Layout slots (filled from screens). Sizes follow the FONT_* constants
+# below - if you bump those, recompute HEADER_H / FOOTER_H so the chrome
+# still fits without clipping descenders.
 HEADER_Y   = 0
-HEADER_H   = 38          # fits FONT_TITLE=32
+HEADER_H   = 44          # fits FONT_TITLE=36 with 4px top + 4px bottom padding
 DIVIDER_Y  = HEADER_H + 1
-BODY_Y     = HEADER_H + 4
-FOOTER_Y   = H - 32      # fits FONT_SMALL=18 with padding
-FOOTER_H   = 32
+BODY_Y     = HEADER_H + 6
+FOOTER_H   = 38          # fits FONT_SMALL=22 with padding
+FOOTER_Y   = H - FOOTER_H
 
 # ── Colors (will be re-bound to pager.rgb in init) ───────────────────────
 BLACK = 0x0000
@@ -32,14 +34,14 @@ GREY  = 0x4208
 DARK  = 0x10A2   # ~ #111815 — Pineapple Pager dashboard tint
 ACCENT = GREEN   # primary accent — green like the Pineapple Pager dashboard
 
-# ── Fonts ────────────────────────────────────────────────────────────────
-# Match Pineapple's native dialogs (e.g. "Exit the payload log?") which use
-# Steelfish at ~30-32px for body. At smaller sizes Steelfish gets crispy /
-# barely legible on the 480x222 LCD.
+# Fonts.
+# Sizes were bumped one notch in the alpha to favor legibility over density;
+# screens that ran out of space now scroll instead of cramming. If you raise
+# these further, also raise HEADER_H / FOOTER_H above accordingly.
 FONT_PATH: str | None = None         # filled in init()
-FONT_TITLE = 32          # was 28
-FONT_BODY  = 24          # was 20 — matches Pineapple dialog body
-FONT_SMALL = 18          # was 16 — for hints/footer/desc
+FONT_TITLE = 36          # 480x222 LCD - readable at arm's length
+FONT_BODY  = 28          # main rows + value steppers
+FONT_SMALL = 22          # footer hints, descriptions, scroll body
 
 # ── State ────────────────────────────────────────────────────────────────
 _pager = None
@@ -110,13 +112,15 @@ def header(pager, title: str, *, accent=None) -> None:
     accent = accent or ACCENT
     pager.fill_rect(0, HEADER_Y, W, HEADER_H, BLACK)
     if FONT_PATH:
-        pager.draw_ttf(8, HEADER_Y + 4, "ARGUS", accent, FONT_PATH, FONT_TITLE)
+        # Title-row baselines: ARGUS at the title size, the screen name
+        # one notch smaller right next to it, version glyph far right.
+        pager.draw_ttf(8, HEADER_Y + 2, "ARGUS", accent, FONT_PATH, FONT_TITLE)
         title_x = 8 + pager.ttf_width("ARGUS  ", FONT_PATH, FONT_TITLE)
         pager.draw_ttf(title_x, HEADER_Y + 6, title, WHITE, FONT_PATH, FONT_BODY)
-        pager.draw_ttf_right(HEADER_Y + 6, "v2.0", GREY, FONT_PATH, FONT_SMALL, 8)
+        pager.draw_ttf_right(HEADER_Y + 8, "v2.0", GREY, FONT_PATH, FONT_SMALL, 8)
     else:
         pager.draw_text(8, HEADER_Y + 6, "ARGUS  " + title, accent, size=2)
-    pager.hline(0, DIVIDER_Y + HEADER_H - 1, W, accent)
+    pager.hline(0, HEADER_Y + HEADER_H - 1, W, accent)
 
 
 def footer(pager, hints: list[tuple[str, str]]) -> None:
@@ -124,14 +128,14 @@ def footer(pager, hints: list[tuple[str, str]]) -> None:
     pager.fill_rect(0, FOOTER_Y - 1, W, FOOTER_H + 1, BLACK)
     pager.hline(0, FOOTER_Y - 1, W, GREY)
     x = 8
-    y = FOOTER_Y + 4
+    y = FOOTER_Y + 6  # baseline padding for the larger FONT_SMALL
     for key, label in hints:
         # button pill
         if FONT_PATH:
             kw = pager.ttf_width(f" {key} ", FONT_PATH, FONT_SMALL) + 4
             pager.fill_rect(x, y - 2, kw, FONT_SMALL + 4, ACCENT)
             pager.draw_ttf(x + 3, y, key, BLACK, FONT_PATH, FONT_SMALL)
-            x += kw + 4
+            x += kw + 6
             pager.draw_ttf(x, y, label, WHITE, FONT_PATH, FONT_SMALL)
             x += pager.ttf_width(label + "   ", FONT_PATH, FONT_SMALL)
         else:

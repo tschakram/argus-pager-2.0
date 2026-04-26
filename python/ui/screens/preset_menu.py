@@ -28,7 +28,7 @@ def run(pager, state) -> str | None:
 
         W.list_menu(pager, x=10, y=T.BODY_Y + 4,
                     items=PRESETS_ORDER, selected=selected,
-                    row_h=34)
+                    row_h=T.FONT_BODY + 14)
 
         # Description for highlighted preset (just above the footer)
         desc = DESCRIPTIONS[PRESETS_ORDER[selected]]

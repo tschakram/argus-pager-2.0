@@ -81,21 +81,28 @@ def _step_header(pager, n: int, label: str) -> None:
     pager.clear(T.BLACK)
     T.header(pager, f"Post-scan: {n}/4")
     if T.FONT_PATH:
-        pager.draw_ttf_centered(80, label, T.ACCENT, T.FONT_PATH, T.FONT_TITLE)
-        pager.draw_ttf_centered(118, "running...", T.GREY, T.FONT_PATH, T.FONT_SMALL)
+        # vertically center the title above the body, leave a slot for "running..."
+        title_y = T.BODY_Y + 20
+        pager.draw_ttf_centered(title_y, label, T.ACCENT,
+                                T.FONT_PATH, T.FONT_TITLE)
+        pager.draw_ttf_centered(title_y + T.FONT_TITLE + 8, "running...",
+                                T.GREY, T.FONT_PATH, T.FONT_SMALL)
     pager.flip()
 
 
 def _step_result(pager, label: str, body: str) -> None:
     if T.FONT_PATH:
-        pager.fill_rect(0, 100, T.W, 80, T.BLACK)
+        # Wipe everything below the header so the "running..." text is gone
+        pager.fill_rect(0, T.BODY_Y, T.W, T.FOOTER_Y - T.BODY_Y, T.BLACK)
         color = T.ACCENT
         low = body.lower()
         if "alert" in low or "fail" in low or "high" in low:
             color = T.RED
         elif "warn" in low or "queue" in low or "rotated" in low:
             color = T.AMBER
-        pager.draw_ttf_centered(118, body[:48], color, T.FONT_PATH, T.FONT_BODY)
+        body_y = T.BODY_Y + 28
+        pager.draw_ttf_centered(body_y, body[:48], color,
+                                T.FONT_PATH, T.FONT_BODY)
     T.footer(pager, [("A", "Continue"), ("B", "Continue")])
     pager.flip()
 
@@ -118,9 +125,12 @@ def _ask_yes_no(pager, question: str, hint: str) -> bool:
     """A = yes, B = no. Both advance the sequence (no 'back' here).
     POWER also resolves to no, like B."""
     if T.FONT_PATH:
-        pager.fill_rect(0, 80, T.W, 80, T.BLACK)
-        pager.draw_ttf_centered(96, question, T.WHITE, T.FONT_PATH, T.FONT_BODY)
-        pager.draw_ttf_centered(130, hint, T.GREY, T.FONT_PATH, T.FONT_SMALL)
+        pager.fill_rect(0, T.BODY_Y, T.W, T.FOOTER_Y - T.BODY_Y, T.BLACK)
+        q_y = T.BODY_Y + 16
+        pager.draw_ttf_centered(q_y, question, T.WHITE,
+                                T.FONT_PATH, T.FONT_BODY)
+        pager.draw_ttf_centered(q_y + T.FONT_BODY + 12, hint, T.GREY,
+                                T.FONT_PATH, T.FONT_SMALL)
     pager.flip()
     while True:
         btn = pager.wait_button()

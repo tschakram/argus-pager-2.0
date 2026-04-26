@@ -140,6 +140,36 @@ Im Post-Scan kann man mit B durch die ganze Kette durchklicken ohne etwas zu ver
 - Notabbruch jederzeit mit der Power-Taste — `payload.sh` setzt einen `kill_script`
   in `/root/loot/argus/logs/last_kill.sh`, den man via SSH auch von Hand triggern kann
   falls Python hängt.
+- Im Scan-Live-Screen scrollt **UP/DOWN** durch die Datenqualitäts-Ampel-Liste falls
+  mehr Sensoren aktiv sind als auf einen Blick reinpassen (Footer-Hint zeigt den
+  Scrollindikator).
+
+### Deauth-Detector testen
+
+Live-Tests gegen echten Funkverkehr sind heikel — beim Test gegen fremde APs
+deautheriert man nebenbei alle anderen im Channel. Bevorzugter Weg ist deshalb
+ein **Offline-Mock-Test**, der die Detection-Logik validiert ohne dass ein
+einziges Frame durch die Luft fliegt:
+
+```bash
+ssh pager
+cd /root/payloads/user/reconnaissance/argus-pager-2.0
+python3 tools/deauth_test.py
+```
+
+Das Skript füttert vier Szenarien (idle / Hintergrund-Trickle / Flood /
+Multi-Source-Mix) direkt in `DeauthMonitor._process_line()` und prüft die
+Counter, Flood-Erkennung und das Top-Source-Ranking. Erwartete Ausgabe:
+`OK - all 4 scenarios passed.`
+
+Reichen die nicht, gibt es zwei zusätzliche Pfade:
+
+1. **PCAP-Replay** — `tcpdump -r <file>.pcap -e -n` mit einer Datei, die
+   Deauth-Frames enthält, in die Engine schleifen.
+2. **Lab-Test on device** — Pager radio0 als Sender (`aireplay-ng -0 5
+   -a <eigene-test-bssid> wlan0mon`), radio1 (`wlan1mon`) als Detektor; nur
+   gegen eigene Test-BSSID, idealerweise auf einem ungenutzten Channel oder
+   in der Faraday-Box.
 
 ---
 

@@ -16,20 +16,21 @@ def run(pager, state) -> str:
     _log("start")
     pager.clear(T.BLACK)
 
-    # ── Centered ARGUS title ─────────────────────────────────────────
+    # Centered ARGUS title
     if T.FONT_PATH:
-        pager.draw_ttf_centered(58, "ARGUS", T.ACCENT, T.FONT_PATH, 56)
-        pager.draw_ttf_centered(118, "PAGER 2.0", T.WHITE, T.FONT_PATH, 22)
+        pager.draw_ttf_centered(40, "ARGUS", T.ACCENT, T.FONT_PATH, 64)
+        pager.draw_ttf_centered(108, "PAGER 2.0", T.WHITE, T.FONT_PATH, T.FONT_BODY)
     else:
         pager.draw_text_centered(58, "ARGUS", T.ACCENT, size=2)
         pager.draw_text_centered(118, "PAGER 2.0", T.WHITE, size=2)
 
     # divider
-    pager.hline(80, 150, T.W - 160, T.ACCENT)
+    pager.hline(80, 144, T.W - 160, T.ACCENT)
 
-    # initialising… line
+    # init line - readable size, not the tiniest
     if T.FONT_PATH:
-        pager.draw_ttf_centered(160, "initializing sensors...", T.GREY, T.FONT_PATH, 14)
+        pager.draw_ttf_centered(154, "initializing sensors...",
+                                T.GREY, T.FONT_PATH, T.FONT_SMALL)
     else:
         pager.draw_text_centered(160, "initializing sensors", T.GREY, size=1)
 
@@ -59,7 +60,7 @@ def run(pager, state) -> str:
     # render result line under "initializing"
     line = "  ".join(f"{k}:{'OK' if v else 'NA'}" for k, v in checks)
     if T.FONT_PATH:
-        pager.draw_ttf_centered(184, line, T.WHITE, T.FONT_PATH, 12)
+        pager.draw_ttf_centered(186, line, T.WHITE, T.FONT_PATH, T.FONT_SMALL - 4)
     else:
         pager.draw_text_centered(184, line[:50], T.WHITE, size=1)
     pager.flip()

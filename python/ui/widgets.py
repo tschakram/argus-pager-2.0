@@ -12,18 +12,19 @@ from . import theme as T
 
 def toggle(pager, x: int, y: int, label: str, value: bool, *,
            selected: bool = False, width: int = 360) -> None:
-    """Renders ``label  [■■■■■■■■] ON`` / ``[────────] OFF``."""
+    """Renders ``label  [bar]  ON``/``OFF`` aligned to the right."""
     label_color = T.WHITE if selected else 0xC618  # light grey
     if T.FONT_PATH:
         pager.draw_ttf(x, y, label, label_color, T.FONT_PATH, T.FONT_BODY)
     else:
         pager.draw_text(x, y, label, label_color, size=1)
 
-    # Bar position: keep enough room for ~14-char label at FONT_BODY size.
-    bar_x = x + 200
-    bar_w = 150
-    bar_h = max(16, T.FONT_BODY - 4)
-    bar_y = y + 4
+    # Reserve roughly half the screen width for the label, the rest for
+    # the bar + ON/OFF text.
+    bar_w = 130
+    bar_x = T.W - bar_w - 70   # leaves room for "OFF" + right margin
+    bar_h = max(16, T.FONT_BODY - 6)
+    bar_y = y + (T.FONT_BODY - bar_h) // 2
 
     # bar background
     pager.fill_rect(bar_x, bar_y, bar_w, bar_h, T.DARK)
@@ -45,7 +46,7 @@ def toggle(pager, x: int, y: int, label: str, value: bool, *,
         pager.fill_rect(x - 14, y + 4, 6, T.FONT_BODY - 4, T.ACCENT)
 
 
-# ── Number stepper (rounds / duration_s) ─────────────────────────────────
+# Number stepper (rounds / duration_s)
 
 def stepper(pager, x: int, y: int, label: str, value, unit: str = "",
             *, selected: bool = False) -> None:
@@ -53,8 +54,10 @@ def stepper(pager, x: int, y: int, label: str, value, unit: str = "",
     if T.FONT_PATH:
         pager.draw_ttf(x, y, label, label_color, T.FONT_PATH, T.FONT_BODY)
         val_text = f"<  {value}{unit}  >" if selected else f"{value}{unit}"
-        pager.draw_ttf(x + 200, y, val_text, T.ACCENT if selected else T.WHITE,
-                       T.FONT_PATH, T.FONT_BODY)
+        # right-align value so longer labels don't collide
+        pager.draw_ttf_right(y, val_text,
+                             T.ACCENT if selected else T.WHITE,
+                             T.FONT_PATH, T.FONT_BODY, 14)
     else:
         pager.draw_text(x, y, f"{label} {value}{unit}", label_color, size=1)
     if selected:
@@ -65,7 +68,9 @@ def stepper(pager, x: int, y: int, label: str, value, unit: str = "",
 
 def list_menu(pager, x: int, y: int, items: list[str], selected: int,
               *, scroll: int = 0, max_visible: int = 5,
-              row_h: int = 26, width: int = 460) -> None:
+              row_h: int | None = None, width: int = 460) -> None:
+    if row_h is None:
+        row_h = T.FONT_BODY + 12
     for i in range(max_visible):
         idx = scroll + i
         if idx >= len(items):
@@ -78,7 +83,7 @@ def list_menu(pager, x: int, y: int, items: list[str], selected: int,
         else:
             color = T.WHITE
         if T.FONT_PATH:
-            pager.draw_ttf(x + 14, row_y + 2, items[idx], color, T.FONT_PATH, T.FONT_BODY)
+            pager.draw_ttf(x + 14, row_y + 4, items[idx], color, T.FONT_PATH, T.FONT_BODY)
         else:
             pager.draw_text(x + 14, row_y + 2, items[idx], color, size=1)
 
@@ -99,16 +104,21 @@ def progress_bar(pager, x: int, y: int, w: int, h: int, fraction: float,
 
 def quality_light(pager, x: int, y: int, label: str, status: str,
                   detail: str = "") -> None:
-    """``status`` ∈ {"ok", "wait", "off"}."""
+    """``status`` in {"ok", "wait", "off"}."""
     color = {"ok": T.ACCENT, "wait": T.AMBER, "off": T.GREY}.get(status, T.GREY)
     glyph = {"ok": "OK", "wait": "..", "off": "--"}.get(status, "--")
 
-    pager.fill_circle(x + 6, y + 8, 5, color)
+    # Center the bullet on the label baseline (which sits at y for FONT_BODY)
+    cy = y + T.FONT_BODY // 2
+    pager.fill_circle(x + 8, cy, 6, color)
 
     if T.FONT_PATH:
-        pager.draw_ttf(x + 18, y, label, T.WHITE, T.FONT_PATH, T.FONT_BODY)
+        pager.draw_ttf(x + 24, y, label, T.WHITE, T.FONT_PATH, T.FONT_BODY)
         if detail:
-            pager.draw_ttf(x + 200, y, detail, color, T.FONT_PATH, T.FONT_SMALL)
+            # Right-align the detail near the right edge so labels of
+            # different lengths don't push it off-screen.
+            pager.draw_ttf_right(y + 2, detail, color,
+                                 T.FONT_PATH, T.FONT_SMALL, 16)
     else:
         pager.draw_text(x + 18, y, f"{label} {glyph} {detail}", color, size=1)
 
@@ -117,7 +127,7 @@ def quality_light(pager, x: int, y: int, label: str, status: str,
 
 def threat_card(pager, x: int, y: int, w: int, h: int, level: str,
                 lines: list[str]) -> None:
-    """``level`` ∈ {"clean", "low", "medium", "high"}."""
+    """``level`` in {"clean", "low", "medium", "high"}."""
     palette = {
         "clean":  T.ACCENT,
         "low":    T.ACCENT,
@@ -130,13 +140,13 @@ def threat_card(pager, x: int, y: int, w: int, h: int, level: str,
     pager.fill_rect(x, y, 6, h, color)
 
     if T.FONT_PATH:
-        pager.draw_ttf(x + 12, y + 6, f"THREAT: {level.upper()}", color,
+        pager.draw_ttf(x + 14, y + 4, f"THREAT: {level.upper()}", color,
                        T.FONT_PATH, T.FONT_TITLE)
-        ly = y + T.FONT_TITLE + 8
-        line_h = T.FONT_SMALL + 4
-        max_lines = max(1, (h - (T.FONT_TITLE + 12)) // line_h)
+        ly = y + T.FONT_TITLE + 10
+        line_h = T.FONT_SMALL + 6
+        max_lines = max(1, (h - (T.FONT_TITLE + 14)) // line_h)
         for ln in lines[:max_lines]:
-            pager.draw_ttf(x + 12, ly, ln, T.WHITE, T.FONT_PATH, T.FONT_SMALL)
+            pager.draw_ttf(x + 14, ly, ln, T.WHITE, T.FONT_PATH, T.FONT_SMALL)
             ly += line_h
     else:
         pager.draw_text(x + 12, y + 8, f"THREAT: {level.upper()}", color, size=1)

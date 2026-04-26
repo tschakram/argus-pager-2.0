@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.0.0-alpha2 — Readability + testability pass (2026-04-26)
+
+### UX
+- **Schrift größer + scrollbar wo nötig.** FONT_TITLE 32 -> 36, FONT_BODY 24 -> 28,
+  FONT_SMALL 18 -> 22. Header- und Footerhöhe entsprechend angehoben.
+- **scan_live:** komplett auf FONT_*-relative Y-Werte umgestellt; Datenqualitäts-
+  Ampel ist jetzt scrollbar (UP/DOWN), wenn mehr Sensoren aktiv sind als auf
+  den Bildschirm passen. Footer zeigt `[UP/DN] Scroll` nur wenn nötig.
+- **post_scan, splash, report_view, preset_menu** alle auf den neuen Layout-
+  Standard gezogen (Card-Höhe, Listen-Row-Height, Centered-Title-Y leiten sich
+  jetzt aus FONT_BODY/FONT_TITLE ab statt hardgecodet).
+- Quality-Light-Bullet ist jetzt **vertikal mittig** zur Schrift, Detail-Text
+  rechtsbündig.
+
+### Testbarkeit
+- `core.deauth_monitor` refactored: `_process_line()` ist jetzt eine eigene
+  Methode und kann ohne tcpdump-Subprocess gefüttert werden.
+- **`tools/deauth_test.py`**: Offline-Smoke-Test mit 4 Szenarien (idle,
+  background trickle, active flood, multi-source). Läuft vom Pager aus,
+  ohne dass irgendein Frame durch die Luft fliegt.
+- README: neuer Abschnitt **„Deauth-Detector testen"** mit 3 Pfaden
+  (Mock / PCAP-Replay / Lab on-device).
+
 ## 2.0.0-alpha — First Pager Test (2026-04-25)
 
 ### Bugfixes vs Skeleton

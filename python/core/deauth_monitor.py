@@ -123,30 +123,39 @@ class DeauthMonitor:
         for line in self._proc.stdout:
             if self._stop.is_set():
                 break
-            macs = _MAC_RE.findall(line)
-            if not macs:
-                continue
-            now = time.time()
-            # In radiotap+802.11 the order is usually DA, SA, BSSID
-            # but tcpdump's -e prints RA, TA, ... depending on type.
-            # We just take the first two MACs as src/dst guesses for
-            # rate stats; they're for grouping only, not forensic.
-            dst = macs[0]
-            src = macs[1] if len(macs) > 1 else "?"
-            with self._lock:
-                self._total += 1
-                self._timestamps.append(now)
-                self._by_src[src] = self._by_src.get(src, 0) + 1
-                self._by_dst[dst] = self._by_dst.get(dst, 0) + 1
-                rate = self._rate_locked(now)
-                if rate >= self.flood_threshold and (now - self._last_flood_ts) > 5:
-                    self._last_flood_ts = now
-                    flood = {
-                        "ts": now, "rate_per_s": round(rate, 2),
-                        "src": src, "dst": dst, "window_s": self.window_s,
-                    }
-                    self._floods.append(flood)
-                    self._append_event(flood)
+            self._process_line(line, ts=time.time())
+
+    def _process_line(self, line: str, *, ts: float | None = None) -> None:
+        """Parse a single tcpdump line and update counters / flood state.
+
+        Public for tests so we can feed synthetic lines without spawning
+        a real ``tcpdump`` process.
+        """
+        macs = _MAC_RE.findall(line)
+        if not macs:
+            return
+        if ts is None:
+            ts = time.time()
+        # In radiotap+802.11 the order is usually DA, SA, BSSID
+        # but tcpdump's -e prints RA, TA, ... depending on type.
+        # We just take the first two MACs as dst/src guesses for
+        # rate stats; they're for grouping only, not forensic.
+        dst = macs[0]
+        src = macs[1] if len(macs) > 1 else "?"
+        with self._lock:
+            self._total += 1
+            self._timestamps.append(ts)
+            self._by_src[src] = self._by_src.get(src, 0) + 1
+            self._by_dst[dst] = self._by_dst.get(dst, 0) + 1
+            rate = self._rate_locked(ts)
+            if rate >= self.flood_threshold and (ts - self._last_flood_ts) > 5:
+                self._last_flood_ts = ts
+                flood = {
+                    "ts": ts, "rate_per_s": round(rate, 2),
+                    "src": src, "dst": dst, "window_s": self.window_s,
+                }
+                self._floods.append(flood)
+                self._append_event(flood)
 
     def _append_event(self, evt: dict) -> None:
         try:
