@@ -69,3 +69,10 @@ nul
 # ── Local pagerctl copies (use system /mmc/root/lib/pagerctl) ─
 python/lib/pagerctl.py
 python/lib/libpagerctl.so
+
+# ── Loose screenshots / shots in the repo root ────────────────
+# (PNGs in docs/screenshots/ are explicitly tracked, see below)
+/argus-shot*.png
+/*.png
+/shot*.png
+!docs/screenshots/*.png
