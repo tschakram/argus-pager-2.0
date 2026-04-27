@@ -43,6 +43,15 @@ def run_all(config: dict, preset: dict, *,
     report_path: Path | None = None
     cfg_path = PAYLOAD_DIR / "config.json"
 
+    # CYT writes `argus_report_<its-own-timestamp>.md` and that timestamp
+    # never matches our session_id (it's the moment the CYT process
+    # decided to write, not when the scan started). To still match the
+    # report we just produced, we record the wall-clock at the start of
+    # the analyser run and consider any .md modified at or after that
+    # point a valid candidate.
+    import time
+    run_started = time.time() - 1   # 1s slop for clock skew
+
     # Deauth flood detection (always evaluated when WiFi was on)
     if preset.get("wifi") and deauth_summary:
         floods = int(deauth_summary.get("flood_count", 0))
@@ -111,10 +120,23 @@ def run_all(config: dict, preset: dict, *,
         _run([sys.executable, str(CYT_PY / "surveillance_analyzer.py"),
               "--gps", str(gps_track), "--config", str(cfg_path)], timeout=90)
 
-    # ── Locate latest markdown report ────────────────────────────────
-    candidates = sorted(report_dir.glob(f"*{session_id}*.md"))
-    if candidates:
-        report_path = candidates[-1]
+    # Locate the markdown report CYT just wrote. Strategy: any *.md
+    # under report_dir whose mtime is >= run_started. Pick the newest.
+    # Falls back to a session_id-substring match (older naming scheme)
+    # so existing reports keep being discoverable for re-runs.
+    fresh = []
+    for p in report_dir.glob("*.md"):
+        try:
+            if p.stat().st_mtime >= run_started:
+                fresh.append(p)
+        except Exception:
+            continue
+    if fresh:
+        report_path = max(fresh, key=lambda p: p.stat().st_mtime)
+    else:
+        legacy = sorted(report_dir.glob(f"*{session_id}*.md"))
+        if legacy:
+            report_path = legacy[-1]
 
     return {
         "threat_level": threat,

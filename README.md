@@ -3,6 +3,12 @@
 **Counter-Surveillance auf dem WiFi Pineapple Pager.** Ein Tool das passiv und mobil
 die Frage beantwortet: *„Wer überwacht mich gerade — und wie?"*
 
+<p align="center">
+  <img src="docs/screenshots/01_splash.png" alt="Splash + Sensor self-check" width="380">
+  &nbsp;
+  <img src="docs/screenshots/04_scan_live.png" alt="Live scan with round counter, ETA, live counters" width="380">
+</p>
+
 ---
 
 ## Was kann das Ding
@@ -79,6 +85,21 @@ Rotation mit:
 ---
 
 ## Bedienanleitung
+
+### Visueller Durchlauf
+
+<table>
+  <tr>
+    <td align="center" width="33%"><img src="docs/screenshots/01_splash.png" width="240"><br><sub><b>1. Splash</b><br>Sensor-Self-Check</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/02_preset_menu.png" width="240"><br><sub><b>2. Preset-Menü</b><br>STANDARD / DEEPSCAN / CUSTOM</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/03_scan_config.png" width="240"><br><sub><b>3. Scan-Config</b><br>Toggle-Screen, ←→ schaltet</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/04_scan_live.png" width="240"><br><sub><b>4. Live-Scan</b><br>Round, ETA, Live-Counter</sub></td>
+    <td align="center"><img src="docs/screenshots/05_report_card.png" width="240"><br><sub><b>5. Report-Card</b><br>Threat-Level + Top-Findings</sub></td>
+    <td align="center"><img src="docs/screenshots/06_report_scroll.png" width="240"><br><sub><b>6. Report scroll</b><br>Markdown-Detail mit ↑↓</sub></td>
+  </tr>
+</table>
 
 ### Tastenbelegung
 

@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.0.0-alpha8 — analyser report discovery + screenshot gallery (2026-04-27)
+
+### Bugfix: "No analyser report on disk" even with submodules wired
+- **Cause:** `analyser.py` matched the markdown report by
+  `f"*{session_id}*.md"`, but CYT's `analyze_pcap.py` writes
+  `argus_report_<its-own-now>.md`. The two timestamps never agree (CYT's
+  is the moment the script writes, our session_id is when the scan
+  started), so the glob never hit and the user got the synthetic
+  in-memory fallback even though a real report sat next to it on disk.
+- **Fix:** record `run_started = time.time()` at the top of
+  `run_all()`, then pick the newest `*.md` whose `mtime >= run_started`
+  (1s slop for clock skew). Falls back to the old session-id substring
+  match so older reports stay discoverable.
+
+### Docs
+- Curated **6 device screenshots** into `docs/screenshots/`:
+  splash, preset menu, scan-config, live-scan, report-card,
+  report-scroll. Embedded as a hero pair at the top of the README and
+  a 6-tile visual walkthrough at the start of the Bedienanleitung.
+
 ## 2.0.0-alpha7 — cyt + raypager submodules wired (2026-04-27)
 
 After alpha6 cleared the layout bugs, the live test surfaced that the
