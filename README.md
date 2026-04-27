@@ -99,10 +99,9 @@ etwas zu verändern.
 1. **Splash** — 2 s Logo + Sensor-Self-Check.
 2. **Preset-Menü** — `STANDARD` / `DEEPSCAN` / `CUSTOM` wählen mit ↑↓, **A** = weiter, **B** = Pager runterfahren.
 3. **Scan-Config** — Toggle-Screen mit allen Sensoren. ↑↓ Zeile, ←→ umschalten, **A** = Scan starten, **B** = zurück.
-4. **Live-Scan** — Round-Counter, ETA, Datenqualitäts-Ampel, Live-Counter (WiFi/BT/IMSI/GPS/Deauth).
+4. **Live-Scan** — Round-Counter, ETA, Progress-Bar, Live-Counter (WiFi / BT / GPS / IMSI / Deauth).
    - **A** = Pause / Resume (nur die laufende Runde — Background-Watcher laufen weiter).
-   - **B** = Stop (Confirm-Dialog: A = wirklich stoppen, B = doch weiter).
-   - **↑↓** = Quality-Ampeln scrollen (falls mehr Sensoren als auf einen Blick passen).
+   - **B** = Stop. Confirm-Dialog: **A = Continue** (weiter scannen), **B = Stop** (wirklich abbrechen).
 5. **Post-Scan** — Sequenz aus 4 Schritten. **A** = Aktion ausführen, **B** = Skip + weiter.
    - **(1)** Silent-SMS-Check der letzten 2 h → **(2)** IMSI-Anomalien → **(3)** OpenCelliD-Upload → **(4)** IMEI-Rotation.
 6. **Report-View** — Threat-Card mit Top-Findings.
