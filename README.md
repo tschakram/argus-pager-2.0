@@ -119,10 +119,13 @@ etwas zu verändern.
 ```bash
 ssh pager
 cd /root/payloads/user/reconnaissance/
-git clone https://github.com/tschakram/argus-pager-2.0.git
+git clone --recurse-submodules https://github.com/tschakram/argus-pager-2.0.git
 cd argus-pager-2.0
 git config core.hooksPath hooks                 # OPSEC-Pre-Commit aktivieren
 cp config.example.json config.json              # dann Keys / GPS-Zonen eintragen
+
+# Falls schon vorher geklont (ohne --recurse-submodules):
+git submodule update --init --recursive
 
 # Loot-Verzeichnisse:
 mkdir -p /root/loot/argus/{pcap,reports,logs,ignore_lists,screenshots}
@@ -179,8 +182,8 @@ in Landscape. Funktioniert während die UI läuft.
 - [x] ASCII-clean UI, Font-Auto-Discovery, scrollbare Quality-Lights
 - [x] Synthetic Report Fallback wenn keine cyt/raypager .md vorliegt
 - [x] Screenshot-Tool für die Doku
-- [ ] Erste Live-Tests auf dem Pager
-- [ ] Submodule (`cyt`, `raypager`) per `git submodule add` einhängen
+- [x] Submodule (`cyt`, `raypager`) eingehängt
+- [ ] Erste Live-Tests auf dem Pager mit vollem Report
 
 ### v2.1+
 Weitere Detektoren-Backlog mit Priorität sortiert:

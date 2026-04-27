@@ -1,5 +1,40 @@
 # Changelog
 
+## 2.0.0-alpha7 — cyt + raypager submodules wired (2026-04-27)
+
+After alpha6 cleared the layout bugs, the live test surfaced that the
+report was only the synthetic in-memory fallback ("CYT analysis failed")
+because the analyser scripts weren't on disk. This release wires up the
+real submodules so the post-scan report contains the full CYT findings
+(probe-persistence MAC tables, BT trackers, hotel-scan cameras, cross-
+report, surveillance analyser, KML, etc.) instead of just a 5-line stub.
+
+### New
+- `cyt/` submodule -> github.com/tschakram/chasing-your-tail-pager (main)
+- `raypager/` submodule -> github.com/tschakram/raypager (master)
+- README install snippet uses `--recurse-submodules` and documents the
+  retrofit command for already-cloned trees.
+
+### Verified before commit
+- All 5 paths analyser.py expects under `cyt/python/` exist:
+  analyze_pcap, hotel_scan, camera_activity, cross_report,
+  surveillance_analyzer.
+- All raypager/python/ scripts mudi_client.py drives are present:
+  gps, cell_info, blue_merle, opencellid, silent_sms.
+
+## 2.0.0-alpha6 — scan_live overlap fix + button-convention flip (2026-04-26)
+
+### UX
+- **scan_live overlap fixed.** Dropped the data-quality light list -
+  on 480x222 with the new fonts there was no honest way to fit
+  Round/ETA + Elapsed + progress + 3+ quality lights + 2 stats lines
+  + footer without overlapping. The same DQ info shows up cleanly
+  in the post-scan report. New 4-row layout: Round/ETA | Progress
+  (Elapsed inline) | WiFi+BT+GPS | IMSI+Deauth.
+- **_confirm_stop button-mapping flipped** to match red-light /
+  green-light intuition. A=Continue, B=Stop. Hint reads
+  "[A] Continue   [B] Stop".
+
 ## 2.0.0-alpha5 — UI was slow, preset menu fix, IMEI section (2026-04-26)
 
 ### Performance

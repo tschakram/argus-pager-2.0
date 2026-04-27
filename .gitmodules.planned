@@ -1,8 +1,0 @@
-[submodule "cyt"]
-	path = cyt
-	url = git@github.com:tschakram/chasing-your-tail-pager.git
-	branch = main
-[submodule "raypager"]
-	path = raypager
-	url = git@github.com:tschakram/raypager.git
-	branch = master
