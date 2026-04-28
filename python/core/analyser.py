@@ -66,59 +66,89 @@ def run_all(config: dict, preset: dict, *,
         elif total > 0:
             findings.append(f"deauth: {total} frames (background)")
 
-    # ── CYT analysis (probe persistence + tracker fingerprint) ───────
+    # CYT analysis (probe persistence + tracker fingerprint).
+    # Real CLI from cyt/python/analyze_pcap.py --help:
+    #   --pcaps PCAPS  --config CONFIG  --output-dir DIR
+    #   --threshold N  --min-appearances N  --bt-scans CSV
+    # NB: there is no --session flag. The script writes
+    # `argus_report_<its-own-now>.md` into --output-dir.
     if (preset.get("wifi") or preset.get("bt")) and pcaps:
-        rc, out = _run([
+        cmd = [
             sys.executable, str(CYT_PY / "analyze_pcap.py"),
-            "--pcaps", ",".join(str(p) for p in pcaps),
-            "--config", str(cfg_path),
-            "--session", session_id,
-        ], timeout=300)
+            "--pcaps",      ",".join(str(p) for p in pcaps),
+            "--config",     str(cfg_path),
+            "--output-dir", str(report_dir),
+        ]
+        if bt_files:
+            cmd += ["--bt-scans", ",".join(str(b) for b in bt_files)]
+        rc, out = _run(cmd, timeout=300)
         if rc == 0:
             findings.append(f"CYT analysis OK: {len(pcaps)} pcap(s)")
         else:
-            findings.append("CYT analysis failed")
+            findings.append(f"CYT analysis failed (rc={rc})")
+            print(f"[analyser] analyze_pcap rc={rc}, last output:",
+                  file=sys.stderr)
+            print(out[-500:], file=sys.stderr)
         if rc == 2:
             threat = _max(threat, "medium")
 
-    # ── Hotel scan (cameras) ─────────────────────────────────────────
+    # Hotel scan (cameras).
+    # Real CLI: --pcap CSV  --bt-scan PATH|"live"  --bt-duration N
+    #           --output-dir DIR
+    # No --config / --session.
     if preset.get("cameras") and pcaps:
-        rc, out = _run([
+        cmd = [
             sys.executable, str(CYT_PY / "hotel_scan.py"),
-            "--pcap", ",".join(str(p) for p in pcaps),
-            "--bt-scan", ",".join(str(b) for b in bt_files),
-            "--config", str(cfg_path),
-            "--session", session_id,
-        ], timeout=300)
+            "--pcap",       ",".join(str(p) for p in pcaps),
+            "--output-dir", str(report_dir),
+        ]
+        if bt_files:
+            cmd += ["--bt-scan", ",".join(str(b) for b in bt_files)]
+        rc, out = _run(cmd, timeout=300)
         if rc == 2:
             threat = _max(threat, "high")
             findings.append("hotel_scan: suspicious cameras found")
+        elif rc != 0:
+            print(f"[analyser] hotel_scan rc={rc}: {out[-300:]}",
+                  file=sys.stderr)
 
-    # ── Camera-Activity (bandwidth spikes) ───────────────────────────
+    # Camera-Activity (bandwidth spikes).
+    # Real CLI: --pcap CSV  --suspects JSON  --threshold N  --output-dir DIR
     if preset.get("cameras") and pcaps:
         rc, out = _run([
             sys.executable, str(CYT_PY / "camera_activity.py"),
-            "--pcap", ",".join(str(p) for p in pcaps),
-            "--threshold", "200",
+            "--pcap",       ",".join(str(p) for p in pcaps),
+            "--threshold",  "200",
+            "--output-dir", str(report_dir),
         ], timeout=120)
         if "ACTIVITY:" in out:
             findings.append("camera activity spikes detected")
             threat = _max(threat, "medium")
 
-    # ── Cross-Report (multi-round persistence) ───────────────────────
+    # Cross-Report (multi-round persistence).
+    # Real CLI: --report-dir DIR  --gps-track PATH  --hours N
+    #           --min-reports N  --min-distance M  --output PATH
     if preset.get("cross_report"):
-        rc, out = _run([
+        cross_out = report_dir / f"cross_report_{session_id}.md"
+        cmd = [
             sys.executable, str(CYT_PY / "cross_report.py"),
-            "--hours", "4", "--min-reports", "2", "--min-distance", "200",
-        ], timeout=120)
+            "--report-dir",   str(report_dir),
+            "--hours",        "4",
+            "--min-reports",  "2",
+            "--min-distance", "200",
+            "--output",       str(cross_out),
+        ]
+        if gps_track.exists():
+            cmd += ["--gps-track", str(gps_track)]
+        rc, out = _run(cmd, timeout=120)
         if "n_crit" in out and "0" not in out.split("n_crit")[1][:6]:
             findings.append("cross-report flagged persistent devices")
             threat = _max(threat, "medium")
 
-    # ── Surveillance analyser (KML + clusters) ───────────────────────
-    if preset.get("wifi") and gps_track.exists():
-        _run([sys.executable, str(CYT_PY / "surveillance_analyzer.py"),
-              "--gps", str(gps_track), "--config", str(cfg_path)], timeout=90)
+    # Surveillance analyser is intentionally skipped here - its real CLI
+    # wants --kismet-db, which we don't produce in this pipeline. Probe-
+    # persistence stalking is already covered by analyze_pcap.py +
+    # cross_report.py above.
 
     # Locate the markdown report CYT just wrote. Strategy: any *.md
     # under report_dir whose mtime is >= run_started. Pick the newest.
