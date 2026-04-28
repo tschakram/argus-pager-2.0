@@ -97,7 +97,7 @@ Rotation mit:
   <tr>
     <td align="center"><img src="docs/screenshots/04_scan_live.png" width="240"><br><sub><b>4. Live-Scan</b><br>Round, ETA, Live-Counter</sub></td>
     <td align="center"><img src="docs/screenshots/05_report_card.png" width="240"><br><sub><b>5. Report-Card</b><br>Threat-Level + Top-Findings</sub></td>
-    <td align="center"><img src="docs/screenshots/06_report_scroll.png" width="240"><br><sub><b>6. Report scroll</b><br>Markdown-Detail mit ↑↓</sub></td>
+    <td align="center"><sub><b>6. Report scroll</b><br>(Screenshot folgt sobald<br>der Full-Report-Test grün ist)</sub></td>
   </tr>
 </table>
 
