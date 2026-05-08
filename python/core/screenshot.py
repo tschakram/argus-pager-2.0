@@ -67,9 +67,16 @@ def is_enabled() -> bool:
 
 
 def install(pager, *, base_dir: str | None = None) -> None:
-    """Wire up screenshot capture if ARGUS_SCREENSHOTS is truthy."""
+    """Wire up screenshot capture if ARGUS_SCREENSHOTS is truthy.
+
+    Note: a Python ``str`` is truthy unless empty, so ``"0"`` would
+    enable screenshots if we used a plain bool check. Treat any of
+    ``0``, empty, ``no``, ``off``, ``false`` (case-insensitive) as
+    disabled.
+    """
     global _jobs, _worker
-    if not os.environ.get("ARGUS_SCREENSHOTS"):
+    val = (os.environ.get("ARGUS_SCREENSHOTS") or "").strip().lower()
+    if val in ("", "0", "no", "off", "false"):
         return
     out = Path(
         os.environ.get("ARGUS_SCREENSHOT_DIR")

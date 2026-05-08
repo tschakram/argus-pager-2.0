@@ -39,10 +39,12 @@ export LD_LIBRARY_PATH="/mmc/root/lib/pagerctl:/mmc/usr/lib:/mmc/lib:${LD_LIBRAR
 export PYTHONPATH="$PAYLOAD_DIR/python:/mmc/root/lib/pagerctl:${PYTHONPATH:-}"
 export ARGUS_PAYLOAD_DIR="$PAYLOAD_DIR"
 
-# Auto-screenshot mode: set to 1 here (or pre-export the env-var) to capture
-# every distinct UI state to /root/loot/argus/screenshots/<timestamp>/.
-# Pull them off afterwards with `tools/pull_screenshots.sh`.
-: "${ARGUS_SCREENSHOTS:=0}"
+# Auto-screenshot mode: opt-in only via ARGUS_SCREENSHOTS_DEBUG=1.
+# Costs CPU per flip() (213 KB framebuffer read + queue overhead) and
+# the worker thread can't keep up under load -> drops thousands of shots,
+# noticeable UI lag. Hard-default OFF so live runs aren't degraded.
+# Pull captured PNGs off afterwards with `tools/pull_screenshots.sh`.
+ARGUS_SCREENSHOTS="${ARGUS_SCREENSHOTS_DEBUG:-0}"
 export ARGUS_SCREENSHOTS
 
 # ── Pre-flight ──────────────────────────────────────────────────────────
@@ -91,9 +93,11 @@ restore() {
 }
 trap restore EXIT INT TERM HUP
 
-# ── Run python with a 30-min hard ceiling ───────────────────────────────
+# ── Run python with a 4-hour hard ceiling ──────────────────────────────
+# Long walks / drives + analyser run can easily exceed 30 min. We still
+# want a safety net so a hung subprocess doesn't run forever.
 echo "→ python3 -u python/main.py"
-timeout --signal=TERM --kill-after=10s 1800 \
+timeout --signal=TERM --kill-after=10s 14400 \
     python3 -u "$PAYLOAD_DIR/python/main.py" "$@"
 rc=$?
 echo "python main.py exited with rc=$rc"

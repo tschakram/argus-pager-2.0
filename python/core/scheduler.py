@@ -20,7 +20,7 @@ class State(Enum):
 
 class Scheduler:
     def __init__(self, *, rounds: int, duration_s: int):
-        self.rounds = int(rounds)
+        self.rounds = int(rounds)         # 0 = unbounded (run until stop())
         self.duration_s = int(duration_s)
         self.state = State.IDLE
         self.current_round = 0          # 0 before start, then 1..rounds
@@ -69,12 +69,15 @@ class Scheduler:
             return False
         if self.round_elapsed() < self.duration_s:
             return False
-        if self.current_round >= self.rounds:
+        if self.rounds > 0 and self.current_round >= self.rounds:
             self.state = State.DONE
             return False
         self.current_round += 1
         self._round_started = time.monotonic()
         return True
+
+    def is_unbounded(self) -> bool:
+        return self.rounds == 0
 
     # ── queries ──────────────────────────────────────────────────────
 
@@ -106,4 +109,5 @@ class Scheduler:
         return max(0.0, now - self._total_started - self._total_paused_offset)
 
     def total_seconds(self) -> int:
+        """Bounded total. Returns 0 when unbounded (caller should not show ETA)."""
         return self.rounds * self.duration_s

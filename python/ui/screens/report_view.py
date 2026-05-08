@@ -1,16 +1,68 @@
 """Report-view screen: threat-card summary, optional full Markdown scroll."""
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 
 from .. import theme as T
 from .. import widgets as W
 
+
+def _collapse_details_for_display(lines: list[str]) -> list[str]:
+    """Replace ``<details><summary>X</summary>...</details>`` blocks with a
+    single ``[X]`` placeholder line so the on-device scroll-view doesn't
+    show 40+ lines of MAC bullets that a markdown renderer would hide.
+    The on-disk .md file is unchanged; this is only for the Pager screen."""
+    out: list[str] = []
+    in_block = False
+    for ln in lines:
+        s = ln.strip()
+        if s.startswith("<details>"):
+            in_block = True
+            m = re.search(r"<summary>(.*?)</summary>", s)
+            label = m.group(1) if m else "collapsed"
+            out.append(f"  [{label}]")
+            continue
+        if "</details>" in s:
+            in_block = False
+            continue
+        if in_block:
+            continue
+        out.append(ln)
+    return out
+
 try:
     from pagerctl import BTN_UP, BTN_DOWN, BTN_A, BTN_B, BTN_POWER
 except ImportError:  # pragma: no cover
     BTN_UP, BTN_DOWN, BTN_A, BTN_B, BTN_POWER = 1, 2, 16, 32, 64
+
+# Auto-exit when the user puts the pager down with the report open.
+# Saves the battery and avoids the "report screen drained the device while
+# I was at work" failure mode (run on 05.05. Akku-leer im Idle).
+IDLE_TIMEOUT_S = 60
+
+
+def _wait_button_with_timeout(pager, timeout_s: float) -> int | None:
+    """Like pager.wait_button() but returns None after timeout_s of no
+    input. Polls every 100ms, so press-detection latency is unchanged.
+    """
+    deadline = time.monotonic() + timeout_s
+    while True:
+        try:
+            current, pressed, released = pager.poll_input()
+        except Exception:
+            # poll_input not available -> fall back to blocking
+            return pager.wait_button()
+        if pressed:
+            # Match wait_button's bitmask semantics: return any pressed bit.
+            for b in (BTN_A, BTN_B, BTN_UP, BTN_DOWN, BTN_POWER):
+                if pressed & b:
+                    return b
+            return int(pressed)
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(0.1)
 
 
 def run(pager, state) -> str | None:
@@ -32,6 +84,7 @@ def run(pager, state) -> str | None:
         summary_lines.append(f"SMS:  {post['sms']}")
     if not summary_lines:
         summary_lines = ["no findings"]
+    summary_lines = [T.ascii_safe(s) for s in summary_lines]
 
     # Card fills the body area, leaves 8px breathing room above the footer
     card_y = T.BODY_Y + 6
@@ -43,7 +96,12 @@ def run(pager, state) -> str | None:
     pager.flip()
 
     while True:
-        btn = pager.wait_button()
+        btn = _wait_button_with_timeout(pager, IDLE_TIMEOUT_S)
+        if btn is None:
+            # Idle timeout: exit the screen so the device can sleep.
+            print(f"[report_view] idle {IDLE_TIMEOUT_S}s, auto-exit",
+                  file=__import__("sys").stderr, flush=True)
+            return None
         if btn == BTN_A:
             _scroll_report(pager, result, post, state.get("preset_name", "?"))
         elif btn in (BTN_B, BTN_POWER):
@@ -57,7 +115,8 @@ def _scroll_report(pager, result: dict, post: dict, preset_name: str) -> None:
     built from the in-memory result dict (used when the cyt/raypager submodules
     didn't produce a .md file, e.g. before they're installed)."""
     text = _load_or_synthesize(result, post, preset_name)
-    lines = [ln.rstrip()[:60] for ln in text.splitlines()]
+    lines = _collapse_details_for_display(text.splitlines())
+    lines = [T.ascii_safe(ln.rstrip())[:60] for ln in lines]
     if not lines:
         lines = ["(empty report)"]
 
@@ -85,7 +144,9 @@ def _scroll_report(pager, result: dict, post: dict, preset_name: str) -> None:
         T.footer(pager, [("UP/DN", "Scroll"), ("B", "Back")])
         pager.flip()
 
-        btn = pager.wait_button()
+        btn = _wait_button_with_timeout(pager, IDLE_TIMEOUT_S)
+        if btn is None:
+            return  # idle -> bubble up to outer run() which also auto-exits
         if btn == BTN_UP:
             offset = max(0, offset - visible // 2)
         elif btn == BTN_DOWN:

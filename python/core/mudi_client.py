@@ -99,6 +99,35 @@ def cell_info(cfg: dict) -> dict | None:
         return None
 
 
+def cell_lookup(cfg: dict) -> dict | None:
+    """Cell tower + OpenCelliD lookup (cached on Mudi), merged with the
+    full cell_info radio metadata (RSSI/RSRP/operator/etc.).
+
+    Slower than cell_info() because of the extra API call; intended for
+    analyser-time usage, not the live _mudi_loop. The returned dict has
+    everything cell_info() returns plus the OpenCelliD fields:
+    ``threat`` / ``threat_label`` / ``in_db`` / ``db_lat`` / ``db_lon``.
+    """
+    if not is_reachable(cfg):
+        return None
+    base = cell_info(cfg) or {}
+    # opencellid.py uses the exit code to mirror the threat level:
+    # rc=0 CLEAN, rc=1 UNKNOWN, rc=2 MISMATCH, rc=3 GHOST. JSON is always
+    # written to stdout regardless. We must not gate on rc != 0.
+    rc, out, _ = _run(cfg, _py_path(cfg, "opencellid.py"), timeout=20)
+    if not out.strip():
+        return base or None
+    idx = out.find("{")
+    if idx < 0:
+        return base or None
+    try:
+        ocid = json.loads(out[idx:])
+    except Exception:
+        return base or None
+    base.update(ocid)
+    return base
+
+
 def imsi_alerts_recent(cfg: dict, *, hours: int = 2) -> list[dict]:
     if not is_reachable(cfg):
         return []
@@ -141,31 +170,6 @@ def silent_sms_recent(cfg: dict, *, hours: int = 2) -> list[dict]:
     return rows
 
 
-def upload_queue_count(cfg: dict) -> int:
-    if not is_reachable(cfg):
-        return 0
-    loot = (cfg.get("mudi") or {}).get("loot_dir", "/root/loot/raypager")
-    rc, out, _ = _run(cfg, f"ls -1 {loot}/upload_queue/ 2>/dev/null | grep -c '\\.csv\\.gz$'", timeout=8)
-    if rc != 0:
-        return 0
-    try:
-        return int(out.strip() or "0")
-    except Exception:
-        return 0
-
-
-def opencellid_upload(cfg: dict) -> tuple[int, int]:
-    """Return (uploaded, failed)."""
-    if not is_reachable(cfg):
-        return 0, 0
-    rc, out, _ = _run(cfg, _py_path(cfg, "opencellid.py --upload --json"), timeout=120)
-    if rc != 0:
-        return 0, 0
-    try:
-        data = json.loads(out.strip().splitlines()[-1])
-        return int(data.get("uploaded", 0)), int(data.get("failed", 0))
-    except Exception:
-        return 0, 0
 
 
 def imei_rotate(cfg: dict, *, deterministic: bool = True) -> dict | None:

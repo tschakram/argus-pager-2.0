@@ -1,151 +1,310 @@
-"""Live scan screen: round counter, ETA, progress, live counters, pause/stop.
+"""Live scan screen: 3-button action panel + endless-rounds display.
 
-Layout is computed from the FONT_* / *_Y constants in theme so the screen
-adapts when font sizes change.
+States:
+  IDLE     - waiting for the user to press SCAN LOS (BTN_LEFT)
+  RUNNING  - capture is live, BTN_A = pause, BTN_B = stop
+  PAUSED   - BTN_LEFT = resume, BTN_B = stop
 
-Composition (top to bottom):
-  - Round / ETA row          (FONT_BODY)
-  - Progress bar             (12 px)
-  - Stats line 1: WiFi+BT+GPS (FONT_SMALL)
-  - Stats line 2: IMSI + Deauth (FONT_SMALL)
-  - Footer (Pause / Stop hints)
-
-We deliberately do NOT show the data-quality "lights" here anymore - on
-the 480x222 LCD with FONT_BODY=28 there isn't enough vertical room to
-fit them without overlapping the live-stats block, and the user gets
-the same information cleanly in the Post-scan + Report screens after
-the run.
+When ``preset['rounds'] == 0`` the scheduler runs unbounded; the only way
+out is BTN_B (stop), which jumps to the post-scan flow.
 """
 from __future__ import annotations
 
+import sys
 import time
 
 from .. import theme as T
 from .. import widgets as W
-from core import scan_engine, scheduler
+from core import scan_engine, scheduler, mudi_client
 
 try:
-    from pagerctl import BTN_A, BTN_B, BTN_POWER
+    from pagerctl import BTN_A, BTN_B, BTN_LEFT, BTN_POWER
 except ImportError:  # pragma: no cover
-    BTN_A, BTN_B, BTN_POWER = 16, 32, 64
+    BTN_A, BTN_B, BTN_LEFT, BTN_POWER = 16, 32, 4, 64
+
+REDRAW_PERIOD = 0.5
+
+# IMEI-rotate confirm modal: how long to wait for a button before
+# defaulting to "no" and going straight to the report.
+IMEI_CONFIRM_TIMEOUT_S = 10
+
+
+def _log(msg: str) -> None:
+    print(f"[scan_live] {msg}", file=sys.stderr, flush=True)
 
 
 def run(pager, state) -> str:
     preset = state["preset"]
-    name = state["preset_name"]
-    rounds = int(preset["rounds"])
-    duration = int(preset["duration_s"])
+    name = state.get("preset_name") or preset.get("_name") or "AUTO"
+    rounds = int(preset.get("rounds", 0))
+    duration = int(preset.get("duration_s", 90))
 
     sched = scheduler.Scheduler(rounds=rounds, duration_s=duration)
     engine = scan_engine.ScanEngine(state["config"], preset)
-
     state["scan_result"] = None
-    sched.start()
-    engine.start()
-    T.led_state(pager, "scan")
 
+    started = False
     last_redraw = 0.0
-    REDRAW_PERIOD = 0.5  # 2 fps is plenty for round/ETA - keeps CPU low
-                         # so screenshot encoding never blocks the UI
+    T.led_state(pager, "init")
 
     try:
-        while not sched.is_done():
-            engine.tick(sched)
-
-            # Non-blocking input - poll_input returns
-            # (current, pressed, released) bitmasks, NOT a single button id.
+        while True:
             try:
                 _curr, pressed, _rel = pager.poll_input()
             except Exception:
                 pressed = 0
-            if pressed & BTN_A:
-                if sched.is_paused():
+
+            if not started:
+                if pressed & BTN_LEFT:
+                    _log("SCAN LOS")
+                    sched.start()
+                    engine.start()
+                    started = True
+                    T.led_state(pager, "scan")
+                elif pressed & BTN_POWER:
+                    state["_global_exit"] = True
+                    break
+            else:
+                engine.tick(sched)
+                if sched.is_done():
+                    break
+
+                if pressed & BTN_LEFT and sched.is_paused():
+                    _log("RESUME")
                     sched.resume()
                     engine.resume()
                     T.led_state(pager, "scan")
-                else:
+                elif pressed & BTN_A and sched.is_running():
+                    _log("PAUSE")
                     sched.pause()
                     engine.pause()
                     T.led_state(pager, "pause")
-            elif pressed & BTN_B:
-                if _confirm_stop(pager):
+                elif pressed & BTN_B:
+                    if _confirm_stop(pager):
+                        _log("STOP")
+                        sched.stop()
+                        engine.stop()
+                        _draw_saving(pager, name)
+                        break
+                elif pressed & BTN_POWER:
                     sched.stop()
                     engine.stop()
+                    state["_global_exit"] = True
                     break
-            elif pressed & BTN_POWER:
-                sched.stop()
-                engine.stop()
-                state["_global_exit"] = True
-                break
 
             now = time.monotonic()
             if now - last_redraw >= REDRAW_PERIOD:
-                _draw(pager, name, sched, engine, state)
+                _draw(pager, name, sched, engine, started)
                 last_redraw = now
-
             time.sleep(0.05)
     finally:
-        # ensure capture child processes are reaped before moving on
-        result = engine.finish()
-        state["scan_result"] = result
+        if started:
+            # Run engine.finish() in a worker thread so we can keep the
+            # "Saving report..." frame alive with a spinner + elapsed
+            # counter. Without this the screen looks frozen for the 30-
+            # 120s the analyser takes (cyt + cell_lookup + external_intel).
+            import threading
+            result_holder: dict = {}
+            err_holder: dict = {}
 
-    # final OK frame so the user knows the scan ended cleanly
-    _draw(pager, name, sched, engine, state, final=True)
+            def _runner() -> None:
+                try:
+                    result_holder["r"] = engine.finish()
+                except Exception as e:
+                    err_holder["e"] = e
+
+            t = threading.Thread(target=_runner, daemon=True)
+            t.start()
+            spinner = "|/-\\"
+            tick = 0
+            start_save = time.monotonic()
+            while t.is_alive():
+                elapsed = int(time.monotonic() - start_save)
+                _draw_saving(pager, name,
+                             spin=spinner[tick % 4],
+                             elapsed_s=elapsed)
+                tick += 1
+                t.join(timeout=0.3)
+            t.join()
+            if err_holder:
+                _log(f"engine.finish raised: {err_holder['e']}")
+                state["scan_result"] = {
+                    "threat_level": "low",
+                    "findings":     [f"finish failed: {err_holder['e']}"],
+                    "report_path":  None,
+                }
+            else:
+                state["scan_result"] = result_holder.get("r")
+
+    if not started:
+        if state.get("_global_exit"):
+            return None
+        return None
+
+    _draw(pager, name, sched, engine, started, final=True)
     T.led_state(pager, "ok")
     time.sleep(0.5)
     if state.get("_global_exit"):
         return None
-    return "post_scan"
+
+    # Optional IMEI rotation before showing the report. Auto-default NO
+    # after IMEI_CONFIRM_TIMEOUT_S so the user can put the pager down
+    # without blocking on a confirmation. Only shown if Mudi is reachable.
+    if mudi_client.is_reachable(state.get("config") or {}):
+        if _imei_confirm_modal(pager):
+            _imei_rotate(pager, state)
+    return "report"
 
 
-# drawing
+def _imei_confirm_modal(pager) -> bool:
+    """Render a Yes/No card asking whether to rotate the Mudi IMEI.
 
-def _draw(pager, name, sched, engine, state, *, final: bool = False) -> None:
-    """Render one live-scan frame. Layout is fixed (no scroll state) -
-    we ditched the quality-light list so everything fits on the body
-    without overlapping the live-stats block.
+    Returns True only on explicit BTN_LEFT (Yes). BTN_B / BTN_POWER /
+    no-press-within-timeout all return False (so the run quietly
+    continues to the report).
+    """
+    try:
+        from pagerctl import BTN_UP, BTN_DOWN
+    except ImportError:
+        BTN_UP, BTN_DOWN = 1, 2
+
+    pager.clear(T.BLACK)
+    T.header(pager, "Rotate IMEI?")
+    body_y = T.BODY_Y + 18
+    msg = ["Rotate Mudi IMEI now?",
+           "(needs ~30s reboot)",
+           "",
+           "no input = NO"]
+    for ln in msg:
+        if T.FONT_PATH:
+            pager.draw_ttf_centered(body_y, ln, T.WHITE, T.FONT_PATH, T.FONT_BODY)
+        else:
+            pager.draw_text_centered(body_y, ln, T.WHITE, size=2)
+        body_y += T.FONT_BODY + 4
+    T.footer(pager, [("LEFT", "YES"), ("B", "NO")])
+    pager.flip()
+
+    deadline = time.monotonic() + IMEI_CONFIRM_TIMEOUT_S
+    while time.monotonic() < deadline:
+        try:
+            _cur, pressed, _rel = pager.poll_input()
+        except Exception:
+            return False
+        if pressed:
+            if pressed & BTN_LEFT:
+                return True
+            if pressed & (BTN_B | BTN_POWER | BTN_A | BTN_UP | BTN_DOWN):
+                return False
+        time.sleep(0.1)
+    _log(f"IMEI confirm timed out after {IMEI_CONFIRM_TIMEOUT_S}s -> NO")
+    return False
+
+
+def _imei_rotate(pager, state) -> None:
+    """Show a 'rotating' frame while blue_merle does its thing on Mudi.
+
+    The Mudi reboots after rotating, so the SSH call returns within a
+    few seconds but Mudi-Internet is dead for ~30-60s afterwards. We
+    don't wait for the reboot; the next scan's sense.discover() will
+    notice it back.
     """
     pager.clear(T.BLACK)
-    label = "DONE" if final else ("PAUSE" if sched.is_paused() else "SCAN")
+    T.header(pager, "IMEI rotation")
+    if T.FONT_PATH:
+        pager.draw_ttf_centered(T.BODY_Y + 30, "Rotating Mudi IMEI...",
+                                T.ACCENT, T.FONT_PATH, T.FONT_BODY)
+        pager.draw_ttf_centered(T.BODY_Y + 60, "(Mudi rebooting)",
+                                T.WHITE, T.FONT_PATH, T.FONT_SMALL)
+    else:
+        pager.draw_text_centered(T.BODY_Y + 30, "Rotating Mudi IMEI...",
+                                 T.ACCENT, size=2)
+    T.footer(pager, [("", "")])
+    pager.flip()
+    try:
+        result = mudi_client.imei_rotate(state.get("config") or {})
+        _log(f"imei_rotate result: {result}")
+        # Stash for diagnostics; report.py doesn't surface this today.
+        state.setdefault("post_scan_result", {})["imei_rotate"] = result or {}
+    except Exception as exc:
+        _log(f"imei_rotate failed: {exc}")
+        state.setdefault("post_scan_result", {})["imei_rotate"] = {
+            "error": str(exc),
+        }
+
+
+# ── drawing ─────────────────────────────────────────────────────────────
+
+def _draw(pager, name, sched, engine, started, *, final: bool = False) -> None:
+    pager.clear(T.BLACK)
+    if not started:
+        label = "READY"
+    elif final:
+        label = "DONE"
+    elif sched.is_paused():
+        label = "PAUSED"
+    else:
+        label = "SCAN"
     T.header(pager, f"{label}: {name}")
 
+    if not started:
+        _draw_idle_body(pager)
+    else:
+        _draw_active_body(pager, sched, engine)
+
+    _draw_action_panel(pager, sched, started, final)
+    pager.flip()
+
+
+def _draw_idle_body(pager) -> None:
+    if T.FONT_PATH:
+        pager.draw_ttf_centered(T.BODY_Y + 18, "Press LEFT to start",
+                                T.WHITE, T.FONT_PATH, T.FONT_BODY)
+        pager.draw_ttf_centered(T.BODY_Y + 18 + T.FONT_BODY + 12,
+                                "Auto-detected sensors will run.",
+                                T.GREY, T.FONT_PATH, T.FONT_SMALL)
+    else:
+        pager.draw_text_centered(T.BODY_Y + 20, "Press LEFT to start", T.WHITE, size=2)
+
+
+def _draw_active_body(pager, sched, engine) -> None:
     round_idx = sched.current_round
-    elapsed   = sched.elapsed_total()
-    total     = sched.total_seconds()
-    remaining = max(0, total - elapsed)
-    progress  = elapsed / total if total else 0.0
+    round_elapsed = sched.round_elapsed()
+    duration = max(1, sched.duration_s)
+    round_progress = min(1.0, round_elapsed / duration)
+    total_elapsed = sched.elapsed_total()
 
     if T.FONT_PATH:
-        # Row 1: Round X/Y                        ETA mm:ss
         y1 = T.BODY_Y + 2
-        pager.draw_ttf(14, y1, f"Round {round_idx}/{sched.rounds}",
-                       T.WHITE, T.FONT_PATH, T.FONT_BODY)
-        pager.draw_ttf_right(y1, f"ETA {_fmt(remaining)}",
+        if sched.is_unbounded():
+            head_left = f"Round {round_idx}"
+        else:
+            head_left = f"Round {round_idx}/{sched.rounds}"
+        pager.draw_ttf(14, y1, head_left, T.WHITE, T.FONT_PATH, T.FONT_BODY)
+        pager.draw_ttf_right(y1, f"Total {_fmt(total_elapsed)}",
                              T.ACCENT, T.FONT_PATH, T.FONT_BODY, 14)
 
-        # Row 2: progress bar with Elapsed text inline (left of the bar)
         y2 = y1 + T.FONT_BODY + 8
-        elapsed_label = f"{_fmt(elapsed)}"
+        elapsed_label = f"{_fmt(round_elapsed)}/{_fmt(duration)}"
         elapsed_w = pager.ttf_width(elapsed_label, T.FONT_PATH, T.FONT_SMALL)
         pager.draw_ttf(14, y2 - 2, elapsed_label, T.GREY,
                        T.FONT_PATH, T.FONT_SMALL)
         bar_x = 14 + elapsed_w + 8
         bar_w = T.W - bar_x - 14
-        W.progress_bar(pager, bar_x, y2 + 2, bar_w, 12, progress)
+        W.progress_bar(pager, bar_x, y2 + 2, bar_w, 12, round_progress)
 
-        # Row 3: WiFi  BT  GPS                       (FONT_SMALL)
-        # Row 4: IMSI  Deauth                        (FONT_SMALL, color-coded)
         stats = engine.live_stats()
         y3 = y2 + 18 + 6
+        wifi_dev    = int(stats.get("wifi_devices", 0))
+        wifi_probes = int(stats.get("probe_total", 0))
         pager.draw_ttf(14, y3,
-                       f"WiFi {stats.get('wifi_devices', 0):3d}    "
-                       f"BT {stats.get('bt_devices', 0):3d}    "
+                       f"WiFi {wifi_dev}/{wifi_probes}   "
+                       f"BT {stats.get('bt_devices', 0):3d}   "
                        f"GPS {stats.get('gps', '--')}",
                        T.WHITE, T.FONT_PATH, T.FONT_SMALL)
 
         y4 = y3 + T.FONT_SMALL + 6
-        d_total  = int(stats.get("deauth",        0))
-        d_rate   = float(stats.get("deauth_rate", 0.0))
+        d_total = int(stats.get("deauth", 0))
+        d_rate = float(stats.get("deauth_rate", 0.0))
         d_floods = int(stats.get("deauth_floods", 0))
         if d_floods > 0:
             d_color, d_label = T.RED, "DEAUTH FLOOD!"
@@ -158,31 +317,81 @@ def _draw(pager, name, sched, engine, state, *, final: bool = False) -> None:
                        f"IMSI {stats.get('imsi', '--'):8s}    {d_label}",
                        d_color, T.FONT_PATH, T.FONT_SMALL)
     else:
-        # bitmap-font fallback
-        pager.draw_text(14, T.BODY_Y + 4,
-                        f"Round {round_idx}/{sched.rounds}  ETA {_fmt(remaining)}",
-                        T.WHITE, size=1)
-        W.progress_bar(pager, 14, T.BODY_Y + 30, T.W - 28, 10, progress)
+        head = f"Round {round_idx}" + (f"/{sched.rounds}" if not sched.is_unbounded() else "")
+        pager.draw_text(14, T.BODY_Y + 4, head, T.WHITE, size=1)
+        W.progress_bar(pager, 14, T.BODY_Y + 30, T.W - 28, 10, round_progress)
 
-    # Footer hints
+
+def _draw_action_panel(pager, sched, started: bool, final: bool) -> None:
+    """3-button strip: SCAN LOS / PAUSE / STOP. Active = accent, inactive = grey."""
+    pager.fill_rect(0, T.FOOTER_Y - 1, T.W, T.FOOTER_H + 1, T.BLACK)
+    pager.hline(0, T.FOOTER_Y - 1, T.W, T.GREY)
+
     if final:
-        T.footer(pager, [("A", "Continue")])
+        active = (False, False, False)
+    elif not started:
+        active = (True, False, False)         # only SCAN LOS
+    elif sched.is_paused():
+        active = (True, False, True)          # RESUME + STOP
     else:
-        T.footer(pager, [("A", "Pause" if not sched.is_paused() else "Resume"),
-                         ("B", "Stop")])
+        active = (False, True, True)          # PAUSE + STOP
+
+    left_label = "RESUME" if started and sched.is_paused() else "SCAN LOS"
+    btns = [
+        ("L", left_label, active[0]),
+        ("A", "PAUSE",    active[1]),
+        ("B", "STOP",     active[2]),
+    ]
+
+    slot_w = T.W // 3
+    pad = 8
+    pill_w = 28
+    if T.FONT_PATH:
+        ty = T.FOOTER_Y + 6
+        for i, (key, label, on) in enumerate(btns):
+            x = i * slot_w + pad
+            pill_bg = T.ACCENT if on else T.GREY
+            pager.fill_rect(x, ty - 2, pill_w, T.FONT_SMALL + 4, pill_bg)
+            pager.draw_ttf(x + 7, ty, key, T.BLACK, T.FONT_PATH, T.FONT_SMALL)
+            label_col = T.WHITE if on else T.GREY
+            pager.draw_ttf(x + pill_w + 6, ty, label,
+                           label_col, T.FONT_PATH, T.FONT_SMALL)
+    else:
+        x = 8
+        y = T.FOOTER_Y + 6
+        for key, label, on in btns:
+            col = T.WHITE if on else T.GREY
+            pager.draw_text(x, y, f"[{key}]{label}", col, size=1)
+            x += slot_w
+
+
+def _draw_saving(pager, name: str, *,
+                 spin: str = " ", elapsed_s: int = 0) -> None:
+    """Shown while engine.finish() runs cyt + external intel + cellular
+    lookup + report rendering. With a 30-PCAP session the analyser
+    typically takes 60-120s, so we redraw with a spinner and elapsed
+    counter to make clear the device is alive."""
+    pager.clear(T.BLACK)
+    T.header(pager, f"DONE: {name}")
+    head = f"Saving report {spin}"
+    sub  = f"{elapsed_s:3d}s"
+    if T.FONT_PATH:
+        pager.draw_ttf_centered(T.BODY_Y + 18, head,
+                                T.WHITE, T.FONT_PATH, T.FONT_BODY)
+        pager.draw_ttf_centered(T.BODY_Y + 18 + T.FONT_BODY + 12,
+                                sub, T.ACCENT, T.FONT_PATH, T.FONT_BODY)
+        pager.draw_ttf_centered(T.BODY_Y + 18 + (T.FONT_BODY + 12) * 2,
+                                "do not switch off",
+                                T.GREY, T.FONT_PATH, T.FONT_SMALL)
+    else:
+        pager.draw_text_centered(T.BODY_Y + 20, head, T.WHITE, size=2)
+        pager.draw_text_centered(T.BODY_Y + 50, sub, T.ACCENT, size=2)
+    T.led_state(pager, "init")
     pager.flip()
 
 
 def _confirm_stop(pager) -> bool:
-    """Tiny modal: A (green) = continue scanning, B (red) = stop.
-
-    Convention: red B is the destructive answer everywhere in the UI,
-    green A is the safe / continue answer. So in this stop-confirmation
-    we make A the "no, keep going" button and B the "yes, really stop"
-    button - matching the red-light/green-light intuition the user
-    already has from outside the modal (B in scan_live opens this dialog
-    in the first place because B == abort).
-    """
+    """Modal: A = continue scanning, B = confirm stop. Red B is destructive."""
     box_w = T.W - 120
     box_h = 110
     box_x = (T.W - box_w) // 2
@@ -202,9 +411,9 @@ def _confirm_stop(pager) -> bool:
     while True:
         btn = pager.wait_button()
         if btn == BTN_A:
-            return False  # continue scanning
+            return False
         if btn == BTN_B:
-            return True   # confirm stop
+            return True
 
 
 def _fmt(secs: float) -> str:

@@ -42,6 +42,17 @@ sms_loopback.jsonl
 rat_history.json
 imsi_monitor_state.json
 silent_sms_seen.json
+pairings.json
+incidents/
+deauth_*.json
+deauth_*.pcap
+external_intel_cache.json
+
+# ── Walk / debug exports (never commit) ───────────────────────
+walk_*.csv
+walk_*.json
+walk_*.html
+gps_track_*.csv
 
 # ── Logs ──────────────────────────────────────────────────────
 *.log

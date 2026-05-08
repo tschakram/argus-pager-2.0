@@ -23,6 +23,8 @@ FORBIDDEN=(
   "imsi_alerts.jsonl"
   "silent_sms.jsonl"
   "rat_history.json"
+  "pairings.json"
+  "external_intel_cache.json"
 )
 
 staged=$(git diff --cached --name-only --diff-filter=ACM)
@@ -35,6 +37,8 @@ for f in $staged; do
   case "$f" in
     *.pcap|*.pcapng|*.kismet|*.kismet-journal) say_block "Capture file staged: $f" ;;
     loot/*|reports/*|logs/*|upload_queue/*|cell_cache/*) say_block "Data dir staged: $f" ;;
+    incidents/*|deauth_*) say_block "Forensic incident staged: $f" ;;
+    walk_*|gps_track_*) say_block "GPS export staged: $f" ;;
     *.log) say_block "Log file staged: $f" ;;
   esac
 done
@@ -45,20 +49,32 @@ diff_content=$(git diff --cached --no-color)
 
 # 1) Real GPS coordinates (anything not 0.0 / 0.000000 / placeholder)
 #    Match patterns "lat": 12.345678 with non-zero non-trivial value
-if echo "$diff_content" | grep -E '^\+' | grep -qE '"(lat|lon|latitude|longitude)"\s*:\s*-?(([1-9][0-9]*\.[0-9]+)|(0\.0*[1-9][0-9]*))'; then
-  # Filter: zero / placeholder allowed
-  if echo "$diff_content" | grep -E '^\+' | grep -qE '"(lat|lon|latitude|longitude)"\s*:\s*-?(([1-9][0-9]*\.[0-9]+)|(0\.0*[1-9][0-9]*))' \
-       | grep -vqE '0\.000000|0\.0$|"lat":\s*0\b|"lon":\s*0\b'; then
-    say_block "Possible real GPS coordinate in diff (use 0.000000 placeholders)"
-  fi
+gps_hits=$(echo "$diff_content" | grep -E '^\+' \
+  | grep -E '"(lat|lon|latitude|longitude)"\s*:\s*-?(([1-9][0-9]*\.[0-9]+)|(0\.0*[1-9][0-9]*))' \
+  | grep -vE '0\.000000|"\s*(lat|lon|latitude|longitude)"\s*:\s*0\b' || true)
+if [ -n "$gps_hits" ]; then
+  say_block "Possible real GPS coordinate in diff (use 0.000000 placeholders):"
+  echo "$gps_hits" | head -3 | sed 's/^/    /' >&2
 fi
 
-# 2) Real-looking MAC addresses (XX:XX:XX:XX:XX:XX) — allow only AA:BB:CC:DD:EE:FF / 00:00:..
+# 2) Real-looking MAC addresses (XX:XX:XX:XX:XX:XX). Allow common
+#    placeholder / test patterns; flag everything else.
+#
+# Whitelist patterns:
+#   aa:bb:cc:dd:ee:??     — generic placeholder used in docs + CYT-purge
+#   aa:00:00:00:00:??     — synthetic deauth_test source
+#   00:00:00:00:00:00     — null
+#   ff:ff:ff:ff:ff:ff     — broadcast
+#   11:22:33:44:55:66     — old anonymisation marker
+#   ca:fe:ca:fe:??:??     — CAFE-test markers
+#   bc:bc:bc:bc:bc:bc     — repeating test value
+#   01:02:03:04:05:06     — counter-test
+#   de:ad:be:ef:??:??     — DEAD-BEEF marker
 if echo "$diff_content" | grep -E '^\+' \
    | grep -qiE '\b([0-9a-f]{2}:){5}[0-9a-f]{2}\b'; then
   bad_macs=$(echo "$diff_content" | grep -E '^\+' \
     | grep -ioE '\b([0-9a-f]{2}:){5}[0-9a-f]{2}\b' \
-    | grep -ivE '^(aa:bb:cc:dd:ee:ff|00:00:00:00:00:00|ff:ff:ff:ff:ff:ff|11:22:33:44:55:66)$' || true)
+    | grep -ivE '^(aa:bb:cc:dd:ee:[0-9a-f]{2}|aa:00:00:00:00:[0-9a-f]{2}|00:00:00:00:00:00|ff:ff:ff:ff:ff:ff|11:22:33:44:55:66|ca:fe:ca:fe:[0-9a-f]{2}:[0-9a-f]{2}|bc:bc:bc:bc:bc:bc|01:02:03:04:05:06|de:ad:be:ef:[0-9a-f]{2}:[0-9a-f]{2})$' || true)
   if [ -n "$bad_macs" ]; then
     say_block "Real-looking MAC address(es) in diff: $bad_macs"
   fi
@@ -74,6 +90,23 @@ fi
 # 4) Bearer-token / hex blobs > 32 chars
 if echo "$diff_content" | grep -E '^\+' | grep -qE '\b[A-Fa-f0-9]{40,}\b'; then
   say_warn "Long hex string detected — verify it isn't a credential"
+fi
+
+# 4b) IMEI / IMSI — 14-15 digit numbers, esp. in known fields
+#   IMEI: 15 digits, IMSI: 14-15 digits. Block any explicit IMEI/IMSI:VALUE.
+if echo "$diff_content" | grep -E '^\+' \
+   | grep -qiE '"?(imei|imsi)"?\s*[:=]\s*"?[0-9]{14,16}"?'; then
+  bad_id=$(echo "$diff_content" | grep -E '^\+' \
+    | grep -ioE '"?(imei|imsi)"?\s*[:=]\s*"?[0-9]{14,16}"?' \
+    | grep -vE '"?(imei|imsi)"?\s*[:=]\s*"?(0{14,16}|1{14,16})"?' || true)
+  if [ -n "$bad_id" ]; then
+    say_block "IMEI/IMSI in diff: $bad_id"
+  fi
+fi
+# Also block bare 15-digit numbers next to "imei"/"imsi" tokens
+if echo "$diff_content" | grep -E '^\+' \
+   | grep -qiE '\b(imei|imsi)\b.*\b[0-9]{14,16}\b'; then
+  say_warn "IMEI/IMSI-shaped number near imei/imsi keyword — verify"
 fi
 
 # 5) SSH private keys

@@ -111,6 +111,33 @@ def shutdown(pager) -> None:
     pager.flip()
 
 
+# ── ASCII sanitizer for display strings ─────────────────────────────────
+# The display font has no umlaut glyphs - umlauts render as empty boxes.
+# UI strings we control are ASCII by convention; foreign content (markdown
+# reports from cyt/raypager) must be passed through ascii_safe() before
+# draw_ttf / draw_text. The on-disk .md file itself stays untouched.
+
+_ASCII_MAP = str.maketrans({
+    "ä": "ae", "ö": "oe", "ü": "ue",
+    "Ä": "Ae", "Ö": "Oe", "Ü": "Ue", "ß": "ss",
+    "–": "-",  "—": "-",
+    "‘": "'",  "’": "'",
+    "“": '"',  "”": '"',
+    "…": "...",
+    " ": " ",
+    "✓": "+",  "✗": "x",  "⚠": "!",
+    "°": "deg",
+})
+
+
+def ascii_safe(text: str) -> str:
+    """Replace common non-ASCII chars with display-safe equivalents."""
+    if not text:
+        return text
+    out = text.translate(_ASCII_MAP)
+    return out.encode("ascii", "replace").decode("ascii")
+
+
 def _set_all_leds(pager, r: int, g: int, b: int) -> None:
     """pagerctl exposes per-direction RGB LEDs — wrap them all to one color."""
     try:

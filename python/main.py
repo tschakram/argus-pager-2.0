@@ -39,8 +39,8 @@ for _name in ("BTN_A", "BTN_B", "BTN_UP", "BTN_DOWN", "BTN_LEFT", "BTN_RIGHT", "
 
 _log("import: ui + core")
 from ui import theme
-from ui.screens import splash, preset_menu, scan_config, scan_live, post_scan, report_view
-from core import presets, screenshot
+from ui.screens import splash, scan_live, report_view
+from core import screenshot
 
 PAYLOAD_DIR = Path(os.environ.get("ARGUS_PAYLOAD_DIR", Path(__file__).resolve().parent.parent))
 CONFIG_PATH = PAYLOAD_DIR / "config.json"
@@ -52,12 +52,9 @@ def load_config() -> dict:
 
 
 SCREENS = {
-    "splash":      splash.run,
-    "preset_menu": preset_menu.run,
-    "scan_config": scan_config.run,
-    "scan_live":   scan_live.run,
-    "post_scan":   post_scan.run,
-    "report":      report_view.run,
+    "splash":    splash.run,
+    "scan_live": scan_live.run,
+    "report":    report_view.run,
 }
 
 
@@ -87,20 +84,39 @@ def main() -> int:
         _log("screenshot mode ENABLED")
 
     state: dict = {
-        "config":  config,
-        "preset":  presets.STANDARD.copy(),
-        "preset_name": "STANDARD",
-        "scan_result": None,
-        "post_scan_result": None,
+        "config":           config,
+        "preset":           None,        # filled by splash from sensor discovery
+        "preset_name":      None,
+        "sensor_report":    None,
+        "scan_result":      None,
     }
 
     next_screen = "splash"
+    last_preset_logged: str | None = None
     try:
         while next_screen is not None:
             handler = SCREENS.get(next_screen)
             if handler is None:
                 print(f"unknown screen: {next_screen!r}", file=sys.stderr, flush=True)
                 break
+            # Log the actual preset+sensors right before scan_live, so the
+            # payload.<ts>.log shows exactly what the user picked.
+            if next_screen == "scan_live":
+                p = state.get("preset") or {}
+                pname = state.get("preset_name") or p.get("_name") or "?"
+                # Keep the preset_name on the dict so the analyser sees it.
+                p.setdefault("_name", pname)
+                state["preset"] = p
+                if pname != last_preset_logged:
+                    flags = " ".join(
+                        f"{k}={'1' if p.get(k) else '0'}"
+                        for k in ("wifi", "bt", "gps_mudi", "cell",
+                                 "cross_report", "cameras",
+                                 "imsi_watch", "sms_watch")
+                    )
+                    _log(f"preset={pname} rounds={p.get('rounds')} "
+                         f"duration_s={p.get('duration_s')} {flags}")
+                    last_preset_logged = pname
             _log(f"-> enter screen: {next_screen}")
             screenshot.mark_screen(next_screen)
             next_screen = handler(pager, state)
