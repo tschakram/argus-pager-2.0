@@ -77,8 +77,19 @@ Loesung: Pineapple-Daemons disablen wenn nicht gebraucht (siehe Backlog).
 1. SmartTag-Beacon-Intervall langsam (2-15s, manchmal Minuten)
 2. BLE-Privacy-Adresse zwischen Argus-Scan und Finder-Start rotiert
 3. hci0-Konflikt mit pineapd (auch wenn pineapple-UI suspended).
-Diagnose offen. Workflow-Tipp: Argus laeuft nur 1-2 Min, dann sofort
-Finder. Wenn Tag aktiv ist sollte er sichtbar sein.
+
+**Loesung: Sweep-Mode (alpha5 nachgezogen)** - Beim Finder-Start fragt
+das UI jetzt:
+- LEFT = Target-Mode (wie alpha4: feste MAC aus Argus-Run)
+- A    = Sweep-Mode (alle Adverts in Reichweite, Live-Top-Liste)
+
+Sweep umgeht Privacy-Rotation komplett: egal wie oft der SmartTag seine
+Adresse wechselt, der naechste Beacon erscheint sofort wieder in der
+Liste. User laeuft durch die Wohnung und beobachtet welche MAC im
+RSSI-Wert nach oben zieht.
+
+OPSEC im Sweep-Mode: keine MAC-Listen persistent, alles in-memory;
+Logs gitignored; full-MAC im Wrapper-Log redaktiert auf letzte 5 Hex.
 
 ### Stand 08.05. — alpha3 Commit + Heim-Auswertung + Pineapple-Diagnose
 

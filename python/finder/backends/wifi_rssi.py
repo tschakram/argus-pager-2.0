@@ -61,14 +61,20 @@ def _parse_radiotap_rssi(data: bytes) -> int | None:
 
 
 class WifiSampler:
-    """Liefert RSSI-Samples fuer eine Ziel-MAC aus tcpdump-Live-Stream."""
+    """Liefert RSSI-Samples aus tcpdump-Live-Stream.
 
-    def __init__(self, target_mac: str, iface: str = DEFAULT_IFACE,
+    target_mac == None oder "" -> Sweep-Modus: alle Probe-Sender; queued
+    Tupel ``(mac_lower, rssi)``.
+    target_mac gesetzt -> Target-Modus: nur diese MAC; queued ``int rssi``.
+    """
+
+    def __init__(self, target_mac: str | None, iface: str = DEFAULT_IFACE,
                  sweep: bool = True):
-        self.target = target_mac.lower()
+        self.target = target_mac.lower() if target_mac else None
         self.iface  = iface
         self.sweep  = sweep
-        self._q: "queue.Queue[int]" = queue.Queue(maxsize=512)
+        # Target: int RSSI. Sweep: (mac_lower, int) tuples.
+        self._q: "queue.Queue" = queue.Queue(maxsize=2048)
         self._proc: subprocess.Popen | None = None
         self._reader: threading.Thread | None = None
         self._hopper: threading.Thread | None = None
@@ -82,11 +88,17 @@ class WifiSampler:
         self._stop_evt.clear()
         # tcpdump: -U = packet-buffered, -l = line-buffered isn't enough for
         # binary pcap, -U flushes per-packet. -w - = pcap to stdout.
+        # Sweep: nur Probe-Frames (FC=0x40), keine MAC-Filter.
         cmd = [
             "tcpdump", "-i", self.iface, "-y", "IEEE802_11_RADIO",
             "-s", "256", "-U", "-w", "-",
-            f"wlan addr2 {self.target}",
         ]
+        if self.target:
+            cmd.append(f"wlan addr2 {self.target}")
+        else:
+            # Im Sweep alle 802.11-Frames mit src-MAC akzeptieren -
+            # Frame-Filter im Reader (FC = Probe-Req/Resp/Beacon).
+            cmd.append("type mgt")
         try:
             self._proc = subprocess.Popen(
                 cmd,
@@ -178,16 +190,34 @@ class WifiSampler:
             if rt_len > len(data):
                 continue
             rssi = _parse_radiotap_rssi(data[:rt_len])
-            if rssi is not None:
+            if rssi is None:
+                continue
+
+            if self.target:
+                # Target-Mode: tcpdump-Filter hat schon nach addr2 gefiltert
+                item = rssi
+            else:
+                # Sweep-Mode: addr2 selbst extrahieren (Bytes 10-15 nach radiotap)
+                dot11 = data[rt_len:]
+                if len(dot11) < 16:
+                    continue
+                fc = dot11[0]
+                # 0x40 = Probe-Req, 0x50 = Probe-Resp, 0x80 = Beacon
+                if fc not in (0x40, 0x50, 0x80):
+                    continue
+                mac = ':'.join(f'{b:02x}' for b in dot11[10:16])
+                if mac == "00:00:00:00:00:00" or mac == "ff:ff:ff:ff:ff:ff":
+                    continue
+                item = (mac, rssi)
+
+            try:
+                self._q.put_nowait(item)
+            except queue.Full:
                 try:
-                    self._q.put_nowait(rssi)
-                except queue.Full:
-                    # drop oldest
-                    try:
-                        self._q.get_nowait()
-                        self._q.put_nowait(rssi)
-                    except queue.Empty:
-                        pass
+                    self._q.get_nowait()
+                    self._q.put_nowait(item)
+                except queue.Empty:
+                    pass
 
     def _hop_loop(self) -> None:
         """Rotiert wlan1mon durch 2.4-GHz-Channels — fokus auf wo ESP32 probt."""

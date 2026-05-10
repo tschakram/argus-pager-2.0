@@ -32,7 +32,7 @@ for _name in ("BTN_A", "BTN_B", "BTN_UP", "BTN_DOWN", "BTN_LEFT",
         setattr(pagerctl, _name, getattr(Pager, _name))
 
 from ui import theme as T
-from finder import target_loader, ui_select, ui_hunt
+from finder import target_loader, ui_select, ui_hunt, ui_sweep, ui_mode_select
 from finder.backends import wifi_rssi, bt_rssi
 
 
@@ -95,7 +95,24 @@ def main() -> int:
             ui_select.show_message(pager, "Finder Fehler", err)
             return 1
 
-        # Targets laden — nur aus dem letzten Argus-Run (BLE-Privacy-Adressen
+        # Mode-Wahl: Target (Argus-Run-MAC) oder Sweep (alle live)
+        mode_label = "WIFI" if args.mode == "wifi" else "BT"
+        which = ui_mode_select.select_mode(pager, mode_label)
+        if which is None:
+            _log("user cancelled at mode-select")
+            return 0
+        _log(f"mode chosen: {which}")
+
+        if which == "sweep":
+            # Sweep-Mode: kein Target, Sampler ohne MAC-Filter
+            if args.mode == "wifi":
+                sampler = wifi_rssi.WifiSampler(None, iface=args.iface, sweep=True)
+            else:
+                sampler = bt_rssi.BtSampler(None)
+            ui_sweep.sweep_loop(pager, sampler, args.mode)
+            return 0
+
+        # Target-Mode: aus dem letzten Argus-Run laden (BLE-Privacy-Adressen
         # rotieren ~alle 15 Min, alte Adressen waeren nutzlos).
         if args.mode == "wifi":
             targets = target_loader.load_wifi_targets(args.loot, last_only=True)
@@ -116,7 +133,7 @@ def main() -> int:
         if not targets:
             ui_select.show_message(
                 pager, "Keine Targets",
-                "Erst Argus-Scan laufen lassen, dann erneut starten.\n"
+                "Erst Argus-Scan laufen lassen oder Sweep-Mode nutzen.\n"
                 + (session_label or ""),
             )
             return 1
@@ -124,9 +141,12 @@ def main() -> int:
         # Auswahl
         target = ui_select.select_target(pager, targets, args.mode, session_label)
         if target is None:
-            _log("user cancelled")
+            _log("user cancelled at target-select")
             return 0
-        _log(f"selected: {target['mac']}")
+        # Log redaktiert nur die letzten 4 Hex-Stellen (OPSEC: full MAC
+        # waere im /root/loot/argus/logs/ persistent, gitignored aber
+        # vermeidbar)
+        _log(f"selected: ...{target['mac'][-5:]}")
 
         # Sampler aufsetzen
         if args.mode == "wifi":

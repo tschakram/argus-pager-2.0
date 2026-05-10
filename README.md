@@ -86,12 +86,28 @@ Zwei Modi, eigene Menü-Einträge im Reconnaissance-Menü:
   mit 2.4-GHz-Channel-Hopping (1/6/11) damit Probes auf wechselnden
   Kanälen nicht durchrutschen.
 
-### Workflow
+### Zwei Modi
+
+Beim Start fragt der Finder, wie du suchen willst:
+
+- **`LEFT` Target-Mode** — du wählst eine **spezifische MAC** aus dem
+  letzten Argus-Run und trackst sie live. Gut wenn du genau ein Gerät
+  identifizieren willst (z.B. Espressif-Stalker, FritzBox-Repeater).
+  *Caveat:* funktioniert nicht für SmartTags / AirTags wenn die
+  BLE-Privacy-Adresse zwischen Argus-Scan und Walking-Test rotiert ist.
+- **`A` Sweep-Mode** — kein festes Ziel; der Pager **lauscht alle Probes
+  / Adverts** in Reichweite und zeigt eine **Live-Top-Liste sortiert nach
+  RSSI**. Du läufst durch die Wohnung, beobachtest welche MAC im dB-Wert
+  *nach oben* zieht — das ist das Gerät neben dir. Umgeht
+  Privacy-Address-Rotation komplett: egal wie oft die Adresse wechselt,
+  der nächste Beacon erscheint sofort wieder in der Liste.
+
+### Target-Mode Workflow
 
 1. **Argus-Pager-Scan** läuft → schreibt Report + `bt_<sessid>_*.json`.
-2. **Direkt danach Finder starten** — Target-Liste wird **nur** aus diesem
-   letzten Run gefüllt (Default `last_only=True`). Header zeigt
-   `Run 10.05 09:26 (3min alt)` damit du auf einen Blick siehst, wie
+2. **Direkt danach Finder starten** → `LEFT` für Target-Mode. Liste wird
+   **nur** aus diesem letzten Run gefüllt (Default `last_only=True`).
+   Header zeigt `Run 10.05 09:26 (3min alt)` damit du siehst, wie
    frisch die BLE-Adressen sind.
 3. **Target wählen** (`UP/DN` scrollen, `LEFT` = OK, `B` = Cancel).
 4. **Hunt-Screen** läuft endlos:
@@ -101,6 +117,32 @@ Zwei Modi, eigene Menü-Einträge im Reconnaissance-Menü:
    - **LED + Vibration** nach Status (rot/amber/cyan/grün)
    - **`B` = sofort raus**, `poll_input()` alle 50 ms
    - **Auto-Exit nach 5 Min ohne Signal** (Akku-Schutz)
+
+### Sweep-Mode Workflow
+
+1. Finder starten → `A` für Sweep.
+2. **Live-Liste** wird sofort gefüllt (egal ob Argus vorher lief).
+   Spalten: kurze MAC | RSSI | Sample-Count | Sekunden seit letztem Beacon.
+   Stärkstes Signal oben.
+3. **Beobachten** statt klicken: durch die Wohnung gehen, Liste schauen
+   — welche MAC steigt von -85 auf -55 wenn du in den richtigen Raum
+   gehst? Das ist dein Ziel.
+4. **LED + Vibration** spiegeln das stärkste Signal in der Liste.
+5. **Aging-Out:** MACs die 30 Sekunden nicht mehr beaconen verschwinden
+   automatisch — die Liste bleibt aktuell.
+6. **`UP/DN`** scrollt, **`LEFT`** springt zurück nach oben, **`B`** = Stop.
+
+### OPSEC im Sweep-Mode
+
+Im Sweep-Mode sieht der Pager **alle BLE/WiFi-Adressen in Reichweite**
+deiner Umgebung. Diese erscheinen kurz auf dem LCD, werden aber
+**ausschließlich in-memory** verarbeitet:
+
+- **Keine** persistente Logfile mit den MACs
+- **Kein** State-File auf der SD-Karte
+- Zwischenstand wird beim Exit komplett gelöscht
+- Screenshots des Sweep-Screens sind via `.gitignore` von Repo-Commits
+  ausgeschlossen — wenn du dokumentieren willst, vorher sanitisieren.
 
 ### Schwellen (RSSI in dBm)
 
@@ -121,10 +163,12 @@ Argus laufen lassen (1-2 Min reicht), dann sofort Finder.
 
 ```
 python/finder/
-├── main.py              # Pager-Init, Splash, --mode {wifi,bt}
+├── main.py              # Pager-Init, Mode-Wahl, Backend-Routing
 ├── target_loader.py     # liest letzten Argus-Report + bt-Files (last_only)
-├── ui_select.py         # scrollbare Target-Liste, poll_input
-├── ui_hunt.py           # RSSI-Display, Bar, Sparkline, LED, Vibrate
+├── ui_mode_select.py    # Target/Sweep Auswahl beim Start
+├── ui_select.py         # Target-Mode: scrollbare Target-Liste
+├── ui_hunt.py           # Target-Mode: RSSI-Display + Sparkline + LED
+├── ui_sweep.py          # Sweep-Mode: Live-Top-Liste mit Aging
 └── backends/
     ├── wifi_rssi.py     # tcpdump live-stream + Radiotap-Parser-Thread
     └── bt_rssi.py       # btmon live-stream
@@ -132,6 +176,11 @@ python/finder/
 argus-finder/payload.sh        # Wrapper → main.py --mode bt
 argus-finder-wifi/payload.sh   # Wrapper → main.py --mode wifi
 ```
+
+Beide Backends können entweder mit Target-MAC (BPF-Filter / btmon-Stream-
+Match) oder ohne (Sweep) laufen. Im Sweep-Mode queue'n sie
+`(mac_lower, rssi)`-Tupel; im Target-Mode nur den `int rssi`. Das hält
+den Sampler-Code minimal und vermeidet zwei Subprocess-Pfade.
 
 Die zwei Wrapper-Verzeichnisse liegen im Repo unter `argus-pager-2.0/`,
 auf dem Pager als **Symlinks** ins Reconnaissance-Menü:

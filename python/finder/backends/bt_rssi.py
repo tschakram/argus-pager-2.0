@@ -24,11 +24,17 @@ RSSI_RE = re.compile(r'\s+RSSI:\s+(-?\d+)\s+dBm')
 
 
 class BtSampler:
-    """Liefert RSSI-Samples fuer eine BT-Target-MAC aus btmon-Live-Stream."""
+    """Liefert RSSI-Samples aus btmon-Live-Stream.
 
-    def __init__(self, target_mac: str):
-        self.target = target_mac.lower()
-        self._q: "queue.Queue[int]" = queue.Queue(maxsize=512)
+    target_mac == None oder "" -> Sweep-Modus: alle BLE-Adverts; queued
+    ``(mac_lower, rssi)``.
+    target_mac gesetzt -> Target-Modus: nur diese MAC; queued ``int rssi``.
+    """
+
+    def __init__(self, target_mac: str | None):
+        self.target = target_mac.lower() if target_mac else None
+        # Target: int RSSI. Sweep: (mac_lower, int) tuples.
+        self._q: "queue.Queue" = queue.Queue(maxsize=2048)
         self._proc: subprocess.Popen | None = None
         self._reader: threading.Thread | None = None
         self._stop_evt = threading.Event()
@@ -119,23 +125,29 @@ class BtSampler:
                     current = m.group(1).lower()
                     continue
 
-                if current != self.target:
+                # Target-Mode: filtert auf einzelne MAC
+                if self.target and current != self.target:
+                    continue
+                if current is None:
                     continue
 
                 m = RSSI_RE.match(line)
-                if m:
+                if not m:
+                    continue
+                try:
+                    rssi = int(m.group(1))
+                except ValueError:
+                    continue
+
+                item = rssi if self.target else (current, rssi)
+                try:
+                    self._q.put_nowait(item)
+                except queue.Full:
                     try:
-                        rssi = int(m.group(1))
-                    except ValueError:
-                        continue
-                    try:
-                        self._q.put_nowait(rssi)
-                    except queue.Full:
-                        try:
-                            self._q.get_nowait()
-                            self._q.put_nowait(rssi)
-                        except queue.Empty:
-                            pass
+                        self._q.get_nowait()
+                        self._q.put_nowait(item)
+                    except queue.Empty:
+                        pass
         except Exception:
             pass
 
