@@ -392,6 +392,9 @@ Argus-Run und macht Live-Tracking auf eine einzelne Ziel-MAC.
       pagerctl-native UI, Live-Stream-Sampler, LED + Vibration
 
 ### v2.2 (Backlog)
+- [x] BLE Address-Type-Erkennung (Public/Random/RPA/Static) — fixt False
+      Positives wo Samsung TVs als SmartTags geflaggt wurden
+- [x] Appearance Code 0x0200 als harter Tracker-Marker (vor Company-ID-Check)
 - BLE-Privacy-Pattern-Whitelist (`70:b1:3d:ab:74:??` als ein Eintrag)
 - Identity-Address-Resolution für SmartTags (paired devices, IRK-basiert)
 - "Known-UNKNOWN towers" Whitelist in config.json (BITE Heimzellen)

@@ -78,6 +78,18 @@ Loesung: Pineapple-Daemons disablen wenn nicht gebraucht (siehe Backlog).
 2. BLE-Privacy-Adresse zwischen Argus-Scan und Finder-Start rotiert
 3. hci0-Konflikt mit pineapd (auch wenn pineapple-UI suspended).
 
+**alpha6 nachgezogen: BLE Address-Type-Erkennung + harter Tracker-Marker**
+(cyt-Submodule). Fixt das Samsung-TV-False-Positive-Problem:
+- `bt_scanner.py` parst jetzt `Address type: Public|Random` aus btmon-Output,
+  klassifiziert Random-Subtype (resolvable/non_resolvable/static) aus Bits 7..6
+- `bt_fingerprint.py` Logik umsortiert: Appearance 0x0200/0x0240 ist HARTER
+  Tracker-Marker (vor Company-ID-Check). Company-ID + Public-Address =
+  Hausgeraet (TV/Soundbar). Company-ID + RPA = Tracker. Company-ID +
+  unknown addr_type = Medium (konservativ). Bestaetigt: Samsung TVs
+  haben CompanyID 117 + Public-OUI -> kein Tracker-Flag mehr.
+- Aufrufer (`bt_scanner._apply_fingerprinting`, `analyze_pcap.save_report`)
+  reichen addr_type + addr_subtype durch.
+
 **Loesung: Sweep-Mode (alpha5 nachgezogen)** - Beim Finder-Start fragt
 das UI jetzt:
 - LEFT = Target-Mode (wie alpha4: feste MAC aus Argus-Run)
