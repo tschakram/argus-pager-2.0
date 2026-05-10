@@ -198,6 +198,92 @@ unter `/root/loot/argus/logs/finder_kill.sh`.
 
 ---
 
+## Argus Probe — Aktive Identifikation (BT-GATT / Network / mDNS)
+
+Wenn Sweep + Walking ein verdächtiges Gerät lokalisiert haben und du
+**100% identifizieren** willst was es genau ist, ist der Probe das Tool.
+
+> ⚠ **AKTIVE Probes sind sichtbar.** Eine GATT-Connection erscheint im
+> Geräte-Log des Ziels. Das ist Counter-Surveillance ohne Stealth —
+> bewusst gewählt für *bestätigen*, nicht *aufspüren*. OPSEC: Pager
+> randomisiert seine BT-Adresse vor jedem Probe via `bdaddr`, falls der
+> BT-Chipset das unterstützt (USB-mt7921u tut es).
+
+### Modi
+
+| Mode | Status | Was es liefert | Tools |
+|---|---|---|---|
+| **BT-GATT** | ✅ ready | Device Name, Appearance, Manufacturer, **Model Number**, FW/HW/SW-Rev, alle Primary Services + Char-UUIDs | `gatttool` |
+| **Network nmap** | ⏳ stub | TCP-Banner-Scan auf wlan0cli-Subnet, Live-Hosts | `nmap` |
+| **mDNS / SSDP** | ⏳ stub | Apple TV / Cast / Sonos / NAS / IP-Cam Hostnamen | `nmap --script broadcast-*` |
+
+### BT-GATT Workflow
+
+1. argus-probe starten → Mode-Wahl: `BT-GATT Probe`
+2. Target aus letztem Argus-Run wählen (BT-Targets, scrollbar)
+3. **Big-Warning-Screen** "AKTIVER PROBE — Pager wird vom Ziel gesehen"
+4. Bestätigen mit `LEFT`, abbrechen mit `B`
+5. **MAC-Spoof** wird automatisch versucht (LAA-randomisierte BD-Address)
+6. **Probe läuft** — Progress-Bar zeigt `Primary Services...` →
+   `Device Name` → `Manufacturer` → `Model Number` → ...
+7. **Ergebnis** scrollbar:
+   ```
+   MAC          ...4bad
+   Address Type random
+   Status       OK
+   Device Name  [TV] Samsung 55Q70A
+   Appearance   0x0140 (Display)
+   Manufacturer Samsung Electronics
+   Model Number QN55Q70AAFXZA          ← echtes TV-Modell!
+   Firmware Rev T-KTSDEUC-1234
+   ---
+   Services     5 found
+     uuid       1800
+     uuid       180a
+     uuid       fd5a
+   ```
+8. `B` zurück zum Mode-Select, weiter probieren oder Exit.
+
+### OPSEC-Maßnahmen
+
+- **bdaddr-Spoof** vor jedem Connect (Locally-Administered-Bit gesetzt)
+- **Disconnect immediate** nach allen Reads, kein Bonding
+- **Logfile redactiert** Target-MAC auf letzte 5 Hex
+- **Confirm-Modal** mit explizitem `LEFT` — kein versehentlicher Probe
+- **Per-Read-Timeout** 5 s damit hängende Charakteristiken nicht stallen
+- **Original BD-Address** wird im finally-Block restauriert
+
+### Was ein GATT-Probe liefert (Beispiele)
+
+| Charakteristik | UUID | Beispiel-Wert |
+|---|---|---|
+| Device Name | 0x2A00 | `[TV] Samsung 55Q70A` |
+| Appearance | 0x2A01 | `0x0C49` (Television) |
+| Manufacturer | 0x2A29 | `Samsung Electronics Co.,Ltd` |
+| **Model Number** | **0x2A24** | **`QN55Q70AAFXZA`** ← unikat |
+| Firmware Rev | 0x2A26 | `T-KTSDEUC-1234.5` |
+| Hardware Rev | 0x2A27 | `Rev1.0` |
+| PnP ID | 0x2A50 | Vendor:USB-IF Product:0x... |
+
+### Warum nicht standardmäßig nutzen
+
+- **Aktiv** = im Ziel-Log. Bei einem echten Stalker triggert das den
+  Operator. Counter-Surveillance heißt "passive observation first".
+- **Verbindung kann fehlschlagen.** Privacy-Mode-Geräte sind oft
+  `Connectable: No`, RPA-rotierende Adressen können während des Probe
+  rotieren, manche TVs deaktivieren GATT wenn sie verschlüsseln.
+- **Pairing nicht möglich.** Charakteristiken die Bonding voraussetzen
+  liefern `Read not permitted` — das ist OK, wir lesen nur das was
+  ohne Pairing geht.
+
+Geplante Erweiterungen (Backlog):
+- Network-nmap auf wlan0cli-Subnet
+- mDNS via nmap-Script
+- L2-Ping für BT Classic
+- Cellular Neighbor-Cells via Mudi `AT+QENG`
+
+---
+
 ## IMEI-Rotation (OPSEC)
 
 Wenn ein Scan einen IMSI-Catcher oder eine andere starke Bedrohung findet, ist
@@ -395,6 +481,9 @@ Argus-Run und macht Live-Tracking auf eine einzelne Ziel-MAC.
 - [x] BLE Address-Type-Erkennung (Public/Random/RPA/Static) — fixt False
       Positives wo Samsung TVs als SmartTags geflaggt wurden
 - [x] Appearance Code 0x0200 als harter Tracker-Marker (vor Company-ID-Check)
+- [x] **Argus Probe** (alpha7) — aktive BT-GATT Identifikation (Model
+      Number, FW-Rev, Service-Discovery), opt-in mit MAC-Randomisierung
+- Network-Probe (nmap) + mDNS/SSDP-Probe Backends — Stubs angelegt
 - BLE-Privacy-Pattern-Whitelist (`70:b1:3d:ab:74:??` als ein Eintrag)
 - Identity-Address-Resolution für SmartTags (paired devices, IRK-basiert)
 - "Known-UNKNOWN towers" Whitelist in config.json (BITE Heimzellen)

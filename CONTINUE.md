@@ -78,6 +78,23 @@ Loesung: Pineapple-Daemons disablen wenn nicht gebraucht (siehe Backlog).
 2. BLE-Privacy-Adresse zwischen Argus-Scan und Finder-Start rotiert
 3. hci0-Konflikt mit pineapd (auch wenn pineapple-UI suspended).
 
+**alpha7: argus-probe (BT-GATT)**
+- `argus-probe/payload.sh` als drittes Tool im Reconnaissance-Menue
+  (Symlink im pager wie argus-finder/-wifi). Neben Sweep+Target-Mode
+  ist Probe das aktive Identifikations-Tool.
+- `python/probe/main.py` Mode-Loop: bt_gatt (ready), network (stub),
+  mdns (stub). Mode-Auswahl scrollbar.
+- `python/probe/backends/bt_gatt.py` macht gatttool-Reads von
+  Generic-Access (0x1800) + Device-Information (0x180A) Services:
+  Device-Name, Appearance, Manufacturer, Model-Number, FW/HW/SW-Rev,
+  Serial, PnP-ID, System-ID. Plus Liste aller Primary-Services.
+- `python/probe/opsec.py` macht bdaddr-Spoof vor Probe (LAA-random),
+  restore im finally. Big-Warning-Screen vor jedem Probe (Confirm).
+  Log-MACs redaktiert auf letzte 5 Hex.
+- README ausfuehrlich: Workflow, OPSEC-Massnahmen, Beispiel-Output.
+- Stubs fuer Network-nmap + mDNS/SSDP angelegt damit Architektur klar
+  ist; Implementation ist v2.2-Backlog.
+
 **alpha6 nachgezogen: BLE Address-Type-Erkennung + harter Tracker-Marker**
 (cyt-Submodule). Fixt das Samsung-TV-False-Positive-Problem:
 - `bt_scanner.py` parst jetzt `Address type: Public|Random` aus btmon-Output,
