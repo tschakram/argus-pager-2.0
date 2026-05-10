@@ -73,6 +73,82 @@ endlosen Runden, bis du STOP drückst.
 
 ---
 
+## Argus Finder — Walking-Mode RSSI-Tracker
+
+Nach einem Argus-Scan willst du wissen: **wo genau steht das verdächtige Gerät**?
+Der Finder ist ein Hot/Cold-Tracker mit Live-RSSI für eine einzelne Ziel-MAC,
+gebaut auf demselben pagerctl-Stack wie die Hauptapp (kein DuckyScript-Builtin).
+
+Zwei Modi, eigene Menü-Einträge im Reconnaissance-Menü:
+
+- **`argus-finder`** — BT-Tracker via `btmon`-Live-Stream
+- **`argus-finder-wifi`** — WiFi-Probe-Tracker via `tcpdump` auf `wlan1mon`,
+  mit 2.4-GHz-Channel-Hopping (1/6/11) damit Probes auf wechselnden
+  Kanälen nicht durchrutschen.
+
+### Workflow
+
+1. **Argus-Pager-Scan** läuft → schreibt Report + `bt_<sessid>_*.json`.
+2. **Direkt danach Finder starten** — Target-Liste wird **nur** aus diesem
+   letzten Run gefüllt (Default `last_only=True`). Header zeigt
+   `Run 10.05 09:26 (3min alt)` damit du auf einen Blick siehst, wie
+   frisch die BLE-Adressen sind.
+3. **Target wählen** (`UP/DN` scrollen, `LEFT` = OK, `B` = Cancel).
+4. **Hunt-Screen** läuft endlos:
+   - **Große RSSI-Zahl** + Status (`IM RAUM`/`NAEHER`/`NEBENAN`/`WEIT WEG`)
+   - **Bar -100…0 dBm** mit Schwellen-Markern bei -55, -70, -80
+   - **30s-Sparkline** glättet das Hot/Cold-Gefühl
+   - **LED + Vibration** nach Status (rot/amber/cyan/grün)
+   - **`B` = sofort raus**, `poll_input()` alle 50 ms
+   - **Auto-Exit nach 5 Min ohne Signal** (Akku-Schutz)
+
+### Schwellen (RSSI in dBm)
+
+| ROT | GELB | BLAU | GRÜN |
+|---|---|---|---|
+| ≥ -55 — gleicher Raum / Tisch | -55…-70 — Nachbarraum | -70…-80 — durch mehrere Wände | < -80 — Außenbereich/weit |
+
+Genauer in der RSSI-Faustregel weiter unten.
+
+### BLE Privacy Address Caveat
+
+Apple AirTags / Samsung SmartTags rotieren ihre BT-Adresse alle ~15 Min
+(RPA = Resolvable Private Address). Der Finder trackt eine **feste** MAC.
+Heißt: 30 Min nach dem Argus-Scan ist die Adresse schon weg. Nochmal kurz
+Argus laufen lassen (1-2 Min reicht), dann sofort Finder.
+
+### Architektur
+
+```
+python/finder/
+├── main.py              # Pager-Init, Splash, --mode {wifi,bt}
+├── target_loader.py     # liest letzten Argus-Report + bt-Files (last_only)
+├── ui_select.py         # scrollbare Target-Liste, poll_input
+├── ui_hunt.py           # RSSI-Display, Bar, Sparkline, LED, Vibrate
+└── backends/
+    ├── wifi_rssi.py     # tcpdump live-stream + Radiotap-Parser-Thread
+    └── bt_rssi.py       # btmon live-stream
+
+argus-finder/payload.sh        # Wrapper → main.py --mode bt
+argus-finder-wifi/payload.sh   # Wrapper → main.py --mode wifi
+```
+
+Die zwei Wrapper-Verzeichnisse liegen im Repo unter `argus-pager-2.0/`,
+auf dem Pager als **Symlinks** ins Reconnaissance-Menü:
+
+```sh
+ln -s /root/payloads/user/reconnaissance/argus-pager-2.0/argus-finder \
+      /root/payloads/user/reconnaissance/argus-finder
+ln -s /root/payloads/user/reconnaissance/argus-pager-2.0/argus-finder-wifi \
+      /root/payloads/user/reconnaissance/argus-finder-wifi
+```
+
+Beide Wrapper suspendieren die Pineapple-UI während des Runs (kill -STOP)
+und resumen via `trap restore EXIT INT TERM HUP`. Emergency-Recovery
+unter `/root/loot/argus/logs/finder_kill.sh`.
+
+---
+
 ## IMEI-Rotation (OPSEC)
 
 Wenn ein Scan einen IMSI-Catcher oder eine andere starke Bedrohung findet, ist
@@ -210,6 +286,37 @@ hinterherkommt und Tausende Shots droppen muss. Nur für Doku/Debug einschalten.
 
 ---
 
+## RSSI lesen — wie nah ist das Gerät?
+
+Wenn du mit `device_hunter`, `tcpdump`-Radiotap oder einem anderen
+Tool eine Signalstärke (RSSI in dBm) für ein verdächtiges Gerät
+abliest, gilt grob:
+
+| RSSI         | Bedeutung |
+|---|---|
+| **≥ -50 dBm**   | sehr nah, oft gleicher Raum / Tisch |
+| **-50 bis -65** | durch eine Wand, Nachbarraum |
+| **-65 bis -75** | durch mehrere Wände, oft Nachbarwohnung / Außenbereich |
+| **≤ -75 dBm**   | weit weg |
+
+Wenn du in **jedem Raum** deiner Wohnung nicht stärker als ca. -68
+dBm wirst und das Signal nirgends deutlich anzieht: das Gerät ist
+mit hoher Wahrscheinlichkeit **nicht in deiner Wohnung**, sondern
+dahinter — Nachbarwohnung, Treppenhaus, Außenwand, Parkplatz, oder
+in der Wand/Decke verbaute IoT-Hardware (Mesh-Repeater, IoT-Bridge
+etc.).
+
+**Argus erfasst RSSI für:**
+- BT-Geräte (BlueZ btmon)
+- WiFi-**Beacons** (APs / Hotspots, Radiotap-Header)
+- WiFi-**Probe-Requests** (Client-MACs / Stalker — `max/last dBm` in der Report-Tabelle, seit Mai 2026)
+- LTE-Tower (Mudi `AT+QENG`)
+
+Der **Argus Finder** (siehe oben) zieht diese RSSI-Werte aus dem letzten
+Argus-Run und macht Live-Tracking auf eine einzelne Ziel-MAC.
+
+---
+
 ## Roadmap
 
 ### v2.1.0 (Release-Kandidat, bei Tests)
@@ -229,9 +336,16 @@ hinterherkommt und Tausende Shots droppen muss. Nur für Doku/Debug einschalten.
 - [x] Akku-Schutz: 60s Idle-Auto-Exit im Report-Screen
 - [x] Recovery-Tool für SIGKILLed Sessions (`tools/rerun_analyser.py`)
 - [x] System-Config: TZ permanent UTC + per-run Mudi-Sync
-- [ ] Live-Verifikation der Performance-Fixes durch 1-2 echte Test-Runs
+- [x] Live-Verifikation der Performance-Fixes durch echte Test-Runs (08.05.)
+- [x] Probe-Request-RSSI: in `pcap_engine.read_pcap_probes` extrahiert,
+      `max/last dBm` Spalte in den Report-Tabellen (seit Mai 2026)
+- [x] **Argus Finder** (BT + WiFi) — Walking-Mode RSSI-Tracker mit
+      pagerctl-native UI, Live-Stream-Sampler, LED + Vibration
 
 ### v2.2 (Backlog)
+- BLE-Privacy-Pattern-Whitelist (`70:b1:3d:ab:74:??` als ein Eintrag)
+- Identity-Address-Resolution für SmartTags (paired devices, IRK-basiert)
+- "Known-UNKNOWN towers" Whitelist in config.json (BITE Heimzellen)
 - Maltego CE Anbindung für Pairings/Suspects/GPS-Track
 - Attack-Surface-DB (SQLite auf Mudi, persistent über Sessions)
 - DHCP-Fingerprint-Extraktion aus assoziierten WiFi-Captures (Hotel)

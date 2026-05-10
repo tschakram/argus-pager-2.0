@@ -89,3 +89,6 @@ python/lib/libpagerctl.so
 screenshots-pulled/
 *.png
 !docs/screenshots/*.png
+
+# bluetoothctl history files (created by finder when btmon scan starts)
+.bluetoothctl_history

@@ -12,16 +12,162 @@ WiFi-/BT-Geräte, IMSI-Catcher und Silent-SMS während man sich bewegt.
 
 ---
 
-## Aktueller Stand (07.05.2026)
+## Aktueller Stand (10.05.2026)
 
 - Repo: `github.com/tschakram/argus-pager-2.0`
-- Letzter Commit: `005a6df` — `v2.0.0-alpha9: fix analyser CLI args`
-- **Phase 1 + 2 + 5 + Architektur-Block A + Performance-/UX-Fixes
-  (05.-07.05.) komplett — `v2.1.0-alpha3`-Reife. Alle Code-Aenderungen
-  deployed auf Pager, NICHT committed.**
-- Geplanter Naechster Commit: nach Verifikation der Performance-Fixes
-  durch 1-2 weitere Live-Tests als `v2.1.0-alpha3`. Nach 2-3 sauberen
-  alpha3-Runs dann Release v2.1.0.
+- **Letzter Commit (LOKAL auf Pager): `f6bfef7` —
+  `v2.1.0-alpha3: simplified UX, sensor pipeline, external intel, OPSEC`**
+- GitHub `origin/main`: weiterhin auf `005a6df` (alpha9) — **NICHT gepusht**.
+- Geplanter naechster Commit (in Vorbereitung):
+  `v2.1.0-alpha4: argus finder + probe-request RSSI`
+
+### Stand 10.05. — Argus Finder + Probe-RSSI + Heim-Run
+
+**Probe-Request-RSSI Patch** (cyt-Submodule):
+- `cyt/python/pcap_engine.py` — `read_pcap_probes` extrahiert jetzt
+  Radiotap-RSSI fuer Probe-Frames; `analyze_persistence` aggregiert
+  max + last je MAC.
+- `cyt/python/analyze_pcap.py` — neue RSSI-Spalte in WARNING-Tabelle
+  und "Alle Geraete" (Format `max/last dBm`).
+- Re-analyse 08.05. Heim-Run zeigte **Espressif `<redacted-mac-espressif>` mit
+  -18 / -64 dBm** — Stalker war zwischenzeitlich quasi am Pager.
+
+**Heim-Run 10.05. 09:26:** sauber durchgelaufen (rc=0). Espressif diesmal
+mit -48 / -53 dBm — bestaetigt: Geraet ist physisch in der Wohnung.
+Pager-"Freeze" am Ende war kein Crash — Pineapple-Framework ging in
+"User Idle, memory maintain" (Eco-Mode) nachdem Argus rc=0 zurueckkam.
+Loesung: Pineapple-Daemons disablen wenn nicht gebraucht (siehe Backlog).
+
+**Espressif** zur ignore_list ("nicht meiner aber ignorieren") -
+49 entries in `/root/loot/argus/ignore_lists/mac_list.json`.
+
+**Argus Finder (NEU) - Walking-Mode RSSI-Tracker:**
+- `python/finder/main.py` - Pager-Init, Splash, --mode {wifi,bt}
+- `python/finder/target_loader.py` - liest letzten Argus-Report +
+  bt-Files (Default `last_only=True` -> nur letzte Session, weil
+  BLE-Privacy-Adressen rotieren ~alle 15 Min).
+- `python/finder/ui_select.py` - scrollbare Target-Liste, Header zeigt
+  `Run TT.MM HH:MM (Xmin alt)` damit der User sieht wie frisch.
+- `python/finder/ui_hunt.py` - Live-RSSI-Anzeige mit Bar -100..0 dBm,
+  30s-Sparkline, Schwellen-Marker, LED + Vibration.
+  Schwellen: ROT >= -55, GELB >= -70, BLAU >= -80, GRUEN < -80.
+  poll_input alle 50ms -> BTN_B = sofort raus. Auto-Exit 5min ohne Signal.
+- `python/finder/backends/wifi_rssi.py` - tcpdump live-stream
+  (`-U -w -`) + Radiotap-Parser-Thread + 2.4GHz-Channel-Hopper-Thread
+  (1/6/11, 0.6s dwell).
+- `python/finder/backends/bt_rssi.py` - btmon live-stream + bluetoothctl
+  scan-on Background.
+- `argus-finder/payload.sh` + `argus-finder-wifi/payload.sh` - 80-Zeiler
+  Wrapper, suspendieren Pineapple-UI mit kill -STOP, restore via trap.
+  Liegen im Repo unter `argus-pager-2.0/`, am Pager als Symlinks ins
+  Reconnaissance-Menue:
+  ```sh
+  ln -s /root/payloads/user/reconnaissance/argus-pager-2.0/argus-finder \
+        /root/payloads/user/reconnaissance/argus-finder
+  ln -s /root/payloads/user/reconnaissance/argus-pager-2.0/argus-finder-wifi \
+        /root/payloads/user/reconnaissance/argus-finder-wifi
+  ```
+
+**Architektur-Wechsel zum alten DuckyScript-Finder:**
+- Kein NUMBER_PICKER/CONFIRMATION_DIALOG mehr (zu unzuverlaessig)
+- Direktes Framebuffer-Drawing via pagerctl, gleicher Stack wie main.py
+- Live-Stream-Sampler statt Burst-Scan (kontinuierlich, nicht alle 4s)
+
+**BT-Finder Test 10.05.: nichts gefunden.** Wahrscheinliche Ursachen:
+1. SmartTag-Beacon-Intervall langsam (2-15s, manchmal Minuten)
+2. BLE-Privacy-Adresse zwischen Argus-Scan und Finder-Start rotiert
+3. hci0-Konflikt mit pineapd (auch wenn pineapple-UI suspended).
+Diagnose offen. Workflow-Tipp: Argus laeuft nur 1-2 Min, dann sofort
+Finder. Wenn Tag aktiv ist sollte er sichtbar sein.
+
+### Stand 08.05. — alpha3 Commit + Heim-Auswertung + Pineapple-Diagnose
+
+**alpha3 committed (`f6bfef7`):**
+- 40 files: 19 mod, 10 del, 11 new
+- +3592 / -1106 LOC
+- Author: `tschakram <tschakram@users.noreply.github.com>` via GIT_*-ENV-vars
+  (kein persistent git config update)
+- pre-commit OPSEC-Hook: passed (1 warn fuer long-hex SHA = harmless)
+- pre-commit MAC-Whitelist erweitert auf Patterns:
+  `aa:bb:cc:dd:ee:??`, `aa:00:00:00:00:??`, `ca:fe:ca:fe:??:??`,
+  `bc:bc:bc:bc:bc:bc`, `01:02:03:04:05:06`, `de:ad:be:ef:??:??`
+- CONTINUE.md anonymisiert — JBL-MAC nicht mehr im Klartext
+  (alle Erwaehnungen `<redacted-mac>`)
+
+**Erster Heim-Run nach allen Fixes (08.05. 15:14):**
+- Session 20260508_151433, 5 PCAPs, 9 min
+- Threat: MEDIUM
+- **Save-Zeit ~50s** (vorher 30 Min) — alle Performance-Fixes wirken
+- **Log-Groesse 3961 Bytes** (vorher 12527 mit screenshots) — Faktor 3,
+  KEIN dropped-shot-Spam mehr -> screenshot truthy-bug-Fix wirkt
+- IMEI-Modal triggerte (kein Log-Output -> User druckte B/NO oder Timeout)
+- Run sauber STOP -> report -> exit, rc=0
+
+**Auswertung Heim-Report - Kernbefund:**
+- 🔴 **Espressif-Stalker `<redacted-mac-espressif>`**: score 1.00, in 5/5
+  Round-Windows, **17 historische Sessions** (seit 30.04.). Auch beim
+  Drive-back am 03.05. mit 53 Appearances dabei. Vermutlich eigenes
+  Smart-Home-IoT (ESP32-Familie) oder Nachbar-IoT.
+- 🔴 **3 Samsung-Tracker (Company ID 117 = SmartTag)**:
+  - `<redacted-mac-samsung-tv>` (9 sessions) — schon erklaert: "Samsung TV
+    Vermieter (BLE)" in ignore_list
+  - `<redacted-mac-samsung-tag-rot>` (8 sessions) — `:74:04` ist in ignore als
+    "Samsung BLE", `:74:05` ist Adress-Rotation desselben Geraets;
+    BLE-Privacy-Pattern-Whitelist sinnvoll
+  - `<redacted-mac-samsung-tag-unknown>` (8 sessions) — UNBEKANNT, identifizieren
+    via Samsung Find-My-App
+- 🟡 **Cell-tower `CID=1056790 TAC=142` UNKNOWN** — BITE Lietuva
+  Heim-Zelle, nicht in OpenCelliD-DB. Konsistent UNKNOWN ueber mehrere
+  Tage; kein Catcher-Signal sondern Daten-Luecke. Whitelist-Feature
+  fuer "Known-UNKNOWN towers" auf v2.2-Backlog.
+
+**Pager-Performance-Diagnose (warum manchmal traege):**
+```
+load avg 2.34   (1 CPU, also 234%-Last)
+RAM      228/250 MB used, 23 MB free, kein Swap
+PID 2667 /pineapple/pineapple   217% CPU
+PID 4021 pineapd --recon=true   im Hintergrund
+PID 4727 _pineap MONITOR <redacted-mac-mudi> rate=200 timeout=3600
+```
+Der `_pineap MONITOR` aktiv-trackt eine MAC die laut ignore_list der
+**Mudi-Router (GL-MT1300 randomized)** ist — sinnlose Ressourcen-Last.
+Pineapple-Daemon plus Recon-Mode fressen >1 CPU dauerhaft. Argus-payload
+suspendiert das waehrend Capture (`kill -STOP 2667`), daher fuehlt sich
+der Scan selbst nicht so traege an. Aber nach STOP + im idle wird's
+spuerbar.
+
+**Quick-fix dauerhaft:**
+```sh
+ssh pager '
+killall _pineap 2>/dev/null
+/etc/init.d/pineapd disable
+/etc/init.d/pineapplepager disable
+'
+```
+Argus + cyt + bt_scanner laufen ohne Pineapple-Daemon — die Pineapple-
+Web-UI ist dann zwar weg, aber bei pure-counter-surveillance-Use
+nicht gebraucht.
+
+**ignore_list Audit:**
+- Pager WiFi-AP `<redacted-mac-pager-wifi>` ist drin
+- Pager BT-HCI-Self `<redacted-mac-pager-bt>` ist NICHT drin -> sollte rein
+- 48 Eintraege total, gut gepflegt, mit deutschen comments
+
+**User-Frage zu BT `<redacted-mac-bt-rot>` + `:9d:c4:93`** —
+beide nicht in argus-Daten. Adressen aus selbem OUI mit 12 Hex
+auseinander -> klassisches BLE-Privacy-Address-Rotations-Pattern.
+OUI b0:d5:fb -> typischerweise Sercomm/Hon Hai (Router/STB).
+Falls Watch-Target gewuenscht: `watch_list.json` Eintrag.
+
+**Verfuegbare Tools fuer Espressif-Lokalisierung:**
+- `device_hunter` (RocketGod) in `/root/payloads/user/reconnaissance/` —
+  hot/cold-Tracker mit LED + Vibration + Klick-Sound. **Genau das
+  richtige Tool fuer WiFi-MAC `<redacted-mac-espressif>`**
+- `argus-finder` — eigenes BT-RSSI-Tool, aber nur fuer BT-Tracker.
+  WiFi-Variante nicht gebaut.
+- FritzBox 7583 WebUI -> Heimnetz -> MAC-Suche
+- `tcpdump -enttiI wlan1mon -y IEEE802_11_RADIO 'wlan addr2 == ...'`
+  + RSSI-Trend manuell
 
 ### Stand 05.-07.05. — Live-Tests + Performance + IMEI-Modal
 
@@ -472,12 +618,38 @@ argus-pager-2.0/
 
 ## Naechste Schritte / Backlog
 
-### Verifikations-Tests fuer alpha3 (User)
-- [ ] **1-2 Live-Tests** zur Bestaetigung der Performance-Fixes:
-      - Save-Latenz < 1 Min (vorher 30+ Min)
-      - Keine UI-Traegheit (ARGUS_SCREENSHOTS off)
-      - IMEI-Confirm-Modal erscheint nach STOP, LEFT-Button=YES
-      - Auto-Exit nach 60s im Report-Screen (kein Akku-Idle-Issue mehr)
+### Verifikations-Tests fuer Release v2.1.0 (User)
+- [x] Heim-Run 08.05.: Save 50s, kein screenshot-spam, sauber rc=0
+- [ ] 1-2 weitere alltaegliche Runs (Walk / Cafe / Buero), idealerweise
+      mit echtem assoziiertem WiFi um endlich Public-IPs zu sehen
+      (External-Intel-Block bisher nur leer-getestet)
+- [ ] Falls alle gruen -> `git tag v2.1.0 && git push origin main && git push origin v2.1.0`
+
+### Open vom 08.05.
+- [ ] **Espressif `<redacted-mac-espressif>` identifizieren** via device_hunter
+      (RSSI-Tracking) oder FritzBox-WebUI. Falls eigen -> ignore_list
+      mit Kommentar; falls fremd Nachbar-IoT -> ignore_list mit "Nachbar
+      IoT seit 30.04.".
+- [ ] **`<redacted-mac-samsung-tag-unknown>`** (Samsung SmartTag, 8 Sessions) identifizieren
+      via Samsung Find-My-App. Falls eigen -> ignore. Falls fremd -> physisch
+      suchen (Tasche/Mantel/Auto), Find-My im Ortungs-Modus piepen lassen.
+- [ ] **Pager BT-HCI-self `<redacted-mac-pager-bt>`** in ignore_list eintragen
+      (Pager WiFi-AP ist schon drin als `<redacted-mac-pager-wifi>`).
+- [ ] **Pineapple-Daemons stoppen** wenn Pineapple-Web-UI nicht gebraucht:
+      `/etc/init.d/pineapd disable && /etc/init.d/pineapplepager disable`.
+      Spart ~217% CPU + RAM.
+- [ ] Optional: `argus-finder-wifi` als Variante des bestehenden
+      argus-finder fuer WiFi-MACs (RSSI + LED + Vibration). Wuerde
+      Espressif-Lokalisierung im argus-Workflow integrieren.
+
+### v2.2 Backlog (mittelfristig)
+- "Known-UNKNOWN towers" Whitelist in config.json: bekannte UNKNOWN-CIDs
+  (BITE Lietuva Heim-Zellen) nicht mehr threat-bumpen
+- BLE-Privacy-Pattern-Whitelist in mac_list: `70:b1:3d:ab:74:??` matchen
+  als ein Geraet statt 256 verschiedene
+- DHCP-Fingerprint-Extraction aus assoziierten WiFi-Captures (Hotel-Test)
+- Maltego-Anbindung der pairings.json
+- Battery-Level read aus /sys/class/power_supply/
 
 ### Frueher fuer 05.05. geplant, gemacht:
 - [x] **2x 1h Live-Test** mit Pager + Mudi outdoor:
@@ -555,6 +727,18 @@ argus-pager-2.0/
 ---
 
 ## Offene Punkte / Bekanntes
+
+### 08.05.2026 (alpha3-Commit + Pineapple-Diagnose)
+- **alpha3 committed lokal `f6bfef7`** — 40 files, +3592/-1106. Author
+  via GIT_*-ENV (kein persistent config update). pre-commit MAC-
+  Whitelist erweitert auf Patterns (statt fixe Werte).
+- **CONTINUE.md JBL-MAC anonymisiert** — pre-commit blockte sonst.
+  Alle Erwaehnungen `<redacted-mac>`.
+- **Heim-Scan zeigt Espressif-Stalker mit 17 Sessions Persistenz** —
+  vermutlich eigenes IoT, aber identifizieren-Pflicht.
+- **Pineapple-Framework frisst >1 CPU-Core dauerhaft** + halbleeres
+  RAM (23 MB free). Quick-fix: pineapd + pineapplepager init-Scripts
+  disable. Argus selbst funktioniert ohne Pineapple.
 
 ### 07.05.2026 (Performance + Regression)
 - **30-Min-Save-Latenz** durch external_intel BT-MAC-Bulk-Fingerbank.
