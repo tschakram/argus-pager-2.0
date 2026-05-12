@@ -61,6 +61,13 @@ class ScanEngine:
         self._mudi_thread: threading.Thread | None = None
         self._mudi_stop = threading.Event()
         self._mudi_pause = threading.Event()
+        # Cellular snapshots fuer Trend-Analyse - jeder Mudi-cell-Poll
+        # legt ein dict ab (ts, rsrp, pci, cid, rat, nb_count, neighbours,
+        # gps_lat, gps_lon). Wird vom analyser via engine.cell_snapshots
+        # gelesen und an cell_anomaly weitergegeben.
+        self.cell_snapshots: list[dict] = []
+        self._cell_snapshots_lock = threading.Lock()
+        self._last_gps: tuple[float, float] | None = None
         self._wifi: wifi_watcher.WifiWatcher | None = None
         self._deauth_summary: dict = {}
         self.iface = (config.get("deauth") or {}).get("iface", "wlan1mon")
@@ -167,6 +174,8 @@ class ScanEngine:
         # bt_scanner finished). The analyser would skip them anyway, but
         # filtering here keeps the report header's BT-files count honest.
         bt_files_present = [f for f in self.bt_files if f.exists()]
+        with self._cell_snapshots_lock:
+            cell_snaps_copy = list(self.cell_snapshots)
         return analyser.run_all(self.config, self.preset,
                                 pcaps=self.pcap_files,
                                 bt_files=bt_files_present,
@@ -175,7 +184,8 @@ class ScanEngine:
                                 session_id=self.session_id,
                                 deauth_summary=self._deauth_summary,
                                 scan_settings=scan_settings,
-                                wifi_probes=wifi_probes)
+                                wifi_probes=wifi_probes,
+                                cell_snapshots=cell_snaps_copy)
 
     # ── live stats for scan_live screen ──────────────────────────────
 
@@ -395,7 +405,7 @@ class ScanEngine:
 
     def _mudi_loop(self) -> None:
         sample_interval = 10
-        cell_every_n    = 6
+        cell_every_n    = 6   # cell-info every 60s
         tick = 0
         while not self._mudi_stop.is_set():
             if not self._mudi_pause.is_set():
@@ -403,6 +413,7 @@ class ScanEngine:
                     if self.preset.get("gps_mudi"):
                         pos = mudi_client.gps_get(self.config, timeout_s=8)
                         if pos:
+                            self._last_gps = pos
                             with self._stats_lock:
                                 self._stats["gps"] = "lock"
                             with self.gps_track.open("a", encoding="utf-8") as f:
@@ -412,10 +423,27 @@ class ScanEngine:
                                 self._stats["gps"] = "no-fix"
                     if self.preset.get("cell") and (tick % cell_every_n) == 0:
                         info = mudi_client.cell_info(self.config)
+                        nbs  = mudi_client.cell_neighbors(self.config)
                         if info:
                             threat = info.get("threat") or info.get("opencellid_threat") or "CLEAN"
                             with self._stats_lock:
                                 self._stats["imsi"] = str(threat)[:10]
+                            # Snapshot fuer Trend-Analyse (cell_anomaly)
+                            snap = {
+                                "ts":               int(time.time()),
+                                "serving_rsrp":     info.get("rsrp"),
+                                "serving_pci":      info.get("pcid", info.get("pci")),
+                                "serving_cid":      info.get("cell_id"),
+                                "serving_tac":      info.get("tac", info.get("lac")),
+                                "rat":              info.get("rat"),
+                                "neighbour_count":  (nbs or {}).get("count", 0),
+                                "neighbours":       (nbs or {}).get("neighbours", []),
+                            }
+                            if self._last_gps:
+                                snap["gps_lat"] = self._last_gps[0]
+                                snap["gps_lon"] = self._last_gps[1]
+                            with self._cell_snapshots_lock:
+                                self.cell_snapshots.append(snap)
                 except Exception:
                     pass
             tick += 1

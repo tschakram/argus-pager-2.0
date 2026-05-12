@@ -35,9 +35,44 @@ argus-pager 2.0 vereint vier Quellen auf einem Hardware-Stack
 | IP-Kamera / NVR / IoT-Device im Hotelzimmer | Fingerbank-Lookup | DHCP, MAC |
 | Aktive Spy-Cam (Bandbreiten-Spike) | Camera-Activity | PCAP |
 | **IMSI-Catcher / Stingray** (RAT-Downgrade, TA-Anomalie) | IMSI-Monitor | AT+QENG |
+| **IMSI-Catcher** (0 Neighbours, Power-Boost, PCID-Drift) | Cell-Anomaly | AT+QENG=neighbourcell |
 | **Silent-SMS / Stille SMS** (Standortpeilung) | SMS-Watch | AT+CMGL |
 | Cell-Tower Spoofing (Cell-ID-Mismatch / nicht in DB) | OpenCelliD-Lookup | API |
 | Public-IP mit bekannter CVE / verdächtigen Ports | InternetDB / Shodan | API |
+
+---
+
+## Vergleich: argus-pager (1.x) vs argus-pager 2.0
+
+| Aspekt | argus-pager 1.x | argus-pager 2.0 |
+|---|---|---|
+| **Bedienung** | Preset-Menü + 7 Toggles + 2 Stepper, 6 Screens bis zum Scan | **3-Button AUTO-Flow**: Splash → SCAN LOS → STOP → Report. Keine Konfiguration im Feld |
+| **Sensor-Discovery** | manuell konfiguriert | `sense.discover()` beim Start, AUTO aktiviert was da ist |
+| **UI-Framework** | DuckyScript-Builtins (`NUMBER_PICKER`, `CONFIRMATION_DIALOG`, `LOG`) | **pagerctl-native** (direkter Framebuffer, eigene Theme + Widgets) |
+| **Rounds** | feste Anzahl | **endlos** bis STOP |
+| **WiFi-Capture** | nur 2.4 GHz | **Multi-Band** 2.4/5/6 GHz, chip-caps-discovery, 54 Frequenzen |
+| **WiFi-Probe-Sammlung** | Kismet-DB | direkt aus PCAP (eigener Parser, kein Kismet-Dep) |
+| **WiFi-Probe-RSSI** | nicht erfasst | **Radiotap-RSSI** je Probe, `max/last dBm` Spalte im Report |
+| **BT-Scan** | btmgmt single-shot | eigener Subprocess + btmon-Stream, JSON-Output, OUI-Cache 365d |
+| **BT-Tracker-Erkennung** | Company-ID 117 = SmartTag (False Positives bei TVs!) | **Address-Type-aware**: Appearance 0x0200 hart, Company-ID nur in Kombination mit Random-RPA, Public-OUI = Hausgerät |
+| **BT-Privacy-Detection** | keine | Address-Type (Public/Random/RPA/Static), Subtype-Klassifikation |
+| **Cell-Tower-Check** | nur Serving Cell + OpenCelliD-Lookup | **Serving + Neighbour Cells**, Anomaly-Score H1-H8 (isolated tower, power-boost, PCID-drift, RSRP-lock-in) |
+| **IMSI-Catcher-Detection** | nur Downgrade-Heuristik (RAT=GSM) | **Multi-Layer**: Downgrade + TA-Anomaly + Cipher-Mode + Neighbour-Anomalien + Trend über Session |
+| **GPS-Sampling** | 40 s | **10 s** (~3-4x dichter, 250+ Punkte/h statt 90) |
+| **Deauth-Detection** | nicht vorhanden | **wifi_watcher.py** mit Flood-Threshold, archiviert `incidents/deauth_*.pcap` für Forensik |
+| **Pairing-DB** | nicht vorhanden | **time-aware** WiFi/BT-Pairing mit TTL-Prune (90 d / 365 d für etablierte) |
+| **External Intel** | optional WiGLE | **InternetDB + Shodan + Fingerbank + OpenCelliD** always-on bei API-Keys |
+| **Cross-Report** | nicht vorhanden | persistence-tracking über Sessions (Stalker-MACs über Tage) |
+| **Walking-Mode** | nicht vorhanden | **argus-finder** (BT) + **argus-finder-wifi** (WiFi), live-RSSI mit LED+Vibration, **Sweep-Mode** umgeht BLE-Privacy-Rotation |
+| **Active Identification** | nicht vorhanden | **argus-probe** (BT-GATT), liest Model Number / Firmware / Services, opt-in mit MAC-Randomisierung |
+| **Report-Format** | reines CYT-Markdown | **strukturiert**: Threat-Summary oben, Metrics-Tabelle, Findings, Cellular-Block, BT-Fingerprint, External Intel, Ignored-Liste collapsed |
+| **Save-Latenz** | minutenlang | **~50 s** für 5-PCAP-Sessions (Mudi-parallel, Hard-Caps) |
+| **Akku-Schutz** | none | **60 s Idle-Auto-Exit** im Report-Screen |
+| **IMEI-Rotation** | manuell via Mudi-Web-UI | **Opt-in Confirm-Modal** mit 10 s Timeout-default-NO |
+| **OPSEC-Hardening** | wenig | `.gitignore` + `hooks/pre-commit` blockt IMEI/MAC/GPS/Keys, CONTINUE.md anonymisiert, TZ permanent UTC |
+| **Recovery** | none | `tools/rerun_analyser.py` rekonstruiert Report aus PCAPs/BT-JSONs nach SIGKILL |
+
+argus-pager 2.0 ist **counter-surveillance first** — passive Beobachtung, mobil, alleinhändig, Walking-Mode + Probe als Erweiterung. argus-pager 1.x war eher Hak5-Standard-Style mit interaktivem Menü-Flow.
 
 ---
 
@@ -195,6 +230,86 @@ ln -s /root/payloads/user/reconnaissance/argus-pager-2.0/argus-finder-wifi \
 Beide Wrapper suspendieren die Pineapple-UI während des Runs (kill -STOP)
 und resumen via `trap restore EXIT INT TERM HUP`. Emergency-Recovery
 unter `/root/loot/argus/logs/finder_kill.sh`.
+
+---
+
+## Cellular Anomaly Detection (Neighbour Cells)
+
+Argus 2.0 sammelt **nicht nur die Serving Cell**, sondern alle 60 s auch die
+**Neighbour-Cell-Liste** vom Mudi-Modem (`AT+QENG="neighbourcell"`). IMSI-
+Catcher / Stingrays zeigen sich oft an Anomalien in der Nachbarschaft, nicht
+nur an der Serving Cell selbst.
+
+### Heuristiken
+
+| Code | Anomalie | Threat-Level |
+|---|---|---|
+| **H1** | 0 Neighbours trotz urbaner Region | high — isolierter Tower, klassisches Catcher-Setup |
+| H2 | 1-2 Neighbours trotz Stadt | medium — ungewöhnlich wenig |
+| **H3** | Neighbour RSRP > Serving RSRP (>3 dB) | medium — Lock-in-Indikator, Catcher hält dich fest |
+| **H4** | Serving-RSRP-Sprung >20 dBm zwischen 60s-Polls | **high — Power-Boost-Angriff** |
+| H4-low | Moderater Sprung 12-20 dBm | medium |
+| H5 | Serving-PCID-Wechsel bei stationärem GPS (<30 m) | medium — erzwungener Handover |
+| H7 | >15 unique Neighbour-PCIs in einer Session | medium — Drift / arbitrary catcher beacons |
+| H8 | Serving RSRP > -60 dBm + <3 Neighbours | medium — möglicher Catcher in Nähe |
+
+Anomalien werden im Report-Cellular-Block als Tabelle ausgegeben:
+
+```
+## Cellular & Catcher
+- Tower:      MCC=246 MNC=02 CID=1056790 TAC=142 RAT=LTE PCI=234 Band=20 RSRP=-85
+- OpenCelliD: UNKNOWN
+- Operator:   BITE Lietuva
+
+### Neighbour Cells (4 in last poll)
+| Kind        | RAT  | EARFCN | PCI | RSRP | RSRQ | SINR |
+| lte_intra   | LTE  | 6300   | 156 | -92  | -10  | 8    |
+| lte_intra   | LTE  | 6300   | 411 | -98  | -12  | 4    |
+| lte_inter   | LTE  | 1850   | 233 | -95  | -11  | 5    |
+| lte_inter   | LTE  | 3050   | 78  | -101 | -13  | 2    |
+
+### Anomaly Score: `NONE`
+
+_Session: 42 cell-polls, RSRP min/max/avg = -91/-78/-85 dBm_
+```
+
+Und bei einem echten Catcher-Indikator:
+
+```
+### Neighbour Cells (0 in last poll)
+_0 neighbours visible this poll._
+
+### Anomaly Score: `HIGH`
+
+- **[H1] HIGH:** 0 Neighbour Cells trotz urbaner Region - isolierter Tower
+- **[H4] HIGH:** Serving RSRP-Sprung -89 -> -52 dBm (delta 37) - Power-Boost-Indikator
+- _RSRP-jump max in session: 37 dBm_
+- _PCID changes in session: 2_
+```
+
+### Multi-Poll Trend-Analyse
+
+Über die ganze Argus-Session (mehrere `cell_info`-Polls) trackt der Analyser:
+- **RSRP-Sprünge** zwischen aufeinanderfolgenden Polls
+- **PCID-Wechsel** kombiniert mit GPS-Distanz (stationär = verdächtig)
+- **Band-Diversity** der Neighbours
+
+Das ist mächtiger als die einzelne Stichprobe — ein Catcher kann sich kurz
+verraten wenn er die Power hochdreht oder PCID wechselt, und der Trend
+fängt das ein.
+
+### Urban vs Rural Toggle
+
+Für rurale Tests (wo 0-1 Neighbours normal sind) kann der Urban-Assumption
+in `config.json` abgeschaltet werden:
+
+```jsonc
+{
+  "cellular": {
+    "urban": false   // schaltet H1/H2/H8 ab
+  }
+}
+```
 
 ---
 

@@ -39,7 +39,8 @@ def run_all(config: dict, preset: dict, *,
             session_id: str,
             deauth_summary: dict | None = None,
             scan_settings: dict | None = None,
-            wifi_probes: dict | None = None) -> dict:
+            wifi_probes: dict | None = None,
+            cell_snapshots: list[dict] | None = None) -> dict:
     findings: list[str] = []
     threat = "clean"
 
@@ -248,11 +249,14 @@ def run_all(config: dict, preset: dict, *,
                                     or preset.get("sms_watch")):
         try:
             from concurrent.futures import ThreadPoolExecutor
-            from . import mudi_client
-            with ThreadPoolExecutor(max_workers=3) as ex:
+            from . import mudi_client, cell_anomaly
+            with ThreadPoolExecutor(max_workers=4) as ex:
                 f_cell = ex.submit(
                     lambda: (mudi_client.cell_lookup(config)
                              or mudi_client.cell_info(config))
+                ) if preset.get("cell") else None
+                f_nb = ex.submit(
+                    mudi_client.cell_neighbors, config
                 ) if preset.get("cell") else None
                 f_imsi = ex.submit(
                     mudi_client.imsi_alerts_recent, config, hours=2
@@ -261,16 +265,31 @@ def run_all(config: dict, preset: dict, *,
                     mudi_client.silent_sms_recent, config, hours=24
                 ) if preset.get("sms_watch") else None
                 cell        = f_cell.result()  if f_cell else None
+                neighbours  = f_nb.result()    if f_nb else None
                 imsi_alerts = f_imsi.result()  if f_imsi else []
                 silent_sms  = f_sms.result()   if f_sms  else []
-            block = _render_cellular_block(cell, imsi_alerts, silent_sms)
+
+            # Cellular Anomalie-Detection: single-poll + trend ueber alle
+            # cell_snapshots der Session (aus engine._mudi_loop).
+            anomaly: dict = {}
+            if cell:
+                snap_result = cell_anomaly.analyse_snapshot(
+                    cell, neighbours,
+                    assume_urban=bool((config.get("cellular") or {})
+                                      .get("urban", True)),
+                )
+                trend_result = cell_anomaly.analyse_trend(
+                    cell_snapshots or [])
+                anomaly = cell_anomaly.aggregate(snap_result, trend_result)
+
+            block = _render_cellular_block(cell, neighbours, anomaly,
+                                           imsi_alerts, silent_sms,
+                                           cell_snapshots or [])
             if block:
                 with report_path.open("a", encoding="utf-8") as f:
                     f.write("\n")
                     f.write(block)
             if cell:
-                # opencellid.py emits ``threat`` (int 0..3) + ``threat_label``;
-                # legacy cell_info had ``threat`` as str. Normalise both.
                 tlab = cell.get("threat_label")
                 if tlab is None:
                     tval = cell.get("threat") or cell.get("opencellid_threat")
@@ -282,6 +301,15 @@ def run_all(config: dict, preset: dict, *,
                 elif tlab == "UNKNOWN":
                     findings.append("cell tower not in OpenCelliD")
                     threat = _max(threat, "medium")
+            # Cellular Anomalie-Threat-Bump
+            if anomaly.get("risk") == "high":
+                for f_ in anomaly.get("findings", [])[:3]:
+                    findings.append(f"cellular: {f_['message'][:60]}")
+                threat = _max(threat, "high")
+            elif anomaly.get("risk") == "medium":
+                for f_ in anomaly.get("findings", [])[:2]:
+                    findings.append(f"cellular: {f_['message'][:60]}")
+                threat = _max(threat, "medium")
             if imsi_alerts:
                 findings.append(f"IMSI alerts (2h): {len(imsi_alerts)}")
                 threat = _max(threat, "medium")
@@ -356,9 +384,12 @@ def run_all(config: dict, preset: dict, *,
 
 
 def _render_cellular_block(cell: dict | None,
+                           neighbours: dict | None,
+                           anomaly: dict | None,
                            imsi_alerts: list[dict],
-                           silent_sms: list[dict]) -> str:
-    """Cellular tower / IMSI / silent-SMS section."""
+                           silent_sms: list[dict],
+                           snapshots: list[dict] | None = None) -> str:
+    """Cellular tower / Neighbours / Anomaly / IMSI / silent-SMS section."""
     lines: list[str] = []
     lines.append("## Cellular & Catcher")
     lines.append("")
@@ -376,9 +407,12 @@ def _render_cellular_block(cell: dict | None,
         tac = cell.get("tac", cell.get("lac", "?"))
         rat = cell.get("rat", cell.get("radio", "?"))
         rssi = cell.get("rssi", cell.get("signal", "—"))
+        rsrp = cell.get("rsrp", "—")
+        pci  = cell.get("pcid", cell.get("pci", "—"))
+        band = cell.get("band", cell.get("band_name", "—"))
         lines.append(
             f"- **Tower:** MCC={mcc} MNC={mnc} CID={cid} TAC={tac} "
-            f"RAT={rat} RSSI={rssi}")
+            f"RAT={rat} PCI={pci} Band={band} RSRP={rsrp} RSSI={rssi}")
         lines.append(f"- **OpenCelliD:** `{threat_s}`")
         if cell.get("operator"):
             lines.append(f"- **Operator:** {cell['operator']}")
@@ -386,6 +420,67 @@ def _render_cellular_block(cell: dict | None,
         lines.append("- _No live cell info (Mudi unreachable or `cell` "
                      "preset off)._")
     lines.append("")
+
+    # Neighbour-Cell-Tabelle
+    nb_count = (neighbours or {}).get("count", 0)
+    nb_list  = (neighbours or {}).get("neighbours", [])
+    if neighbours is not None:
+        lines.append(f"### Neighbour Cells ({nb_count} in last poll)")
+        lines.append("")
+        if nb_list:
+            lines.append("| Kind | RAT | EARFCN/UARFCN/ARFCN | PCI/CellID | "
+                         "RSRP/RSCP/RxLev | RSRQ/EcNo | SINR |")
+            lines.append("|---|---|---|---|---|---|---|")
+            for n in nb_list[:12]:
+                kind  = n.get("kind", "?")
+                rat   = n.get("rat", "?")
+                freq  = (n.get("earfcn") or n.get("uarfcn")
+                         or n.get("arfcn") or "—")
+                pci   = (n.get("pci") if n.get("pci") is not None
+                         else n.get("psc") if n.get("psc") is not None
+                         else n.get("cellid") or "—")
+                power = (n.get("rsrp") if n.get("rsrp") is not None
+                         else n.get("rscp") if n.get("rscp") is not None
+                         else n.get("rxlev") or "—")
+                quality = (n.get("rsrq") if n.get("rsrq") is not None
+                           else n.get("ecno") or "—")
+                sinr  = n.get("sinr", "—")
+                lines.append(f"| {kind} | {rat} | {freq} | {pci} | "
+                             f"{power} | {quality} | {sinr} |")
+        else:
+            lines.append("_0 neighbours visible this poll._")
+        lines.append("")
+
+    # Cellular Anomalie-Block
+    if anomaly:
+        risk = anomaly.get("risk", "none")
+        findings_ = anomaly.get("findings", [])
+        if findings_ or risk != "none":
+            lines.append(f"### Anomaly Score: `{risk.upper()}`")
+            lines.append("")
+            for f_ in findings_:
+                code = f_.get("code", "?")
+                sev  = f_.get("severity", "?")
+                msg  = f_.get("message", "")
+                lines.append(f"- **[{code}] {sev.upper()}:** {msg}")
+            lines.append("")
+            # Mini-Trend-Stats wenn Daten da sind
+            t = anomaly.get("trend") or {}
+            if t.get("rsrp_jump_max", 0) > 0:
+                lines.append(f"- _RSRP-jump max in session: {t['rsrp_jump_max']} dBm_")
+            if t.get("pci_changes", 0) > 0:
+                lines.append(f"- _PCID changes in session: {t['pci_changes']}_")
+            lines.append("")
+
+    # Optional: kompakte Session-Stat
+    if snapshots and len(snapshots) > 1:
+        rsrps = [s.get("serving_rsrp") for s in snapshots
+                 if isinstance(s.get("serving_rsrp"), int)]
+        if rsrps:
+            lines.append(f"_Session: {len(snapshots)} cell-polls, "
+                         f"RSRP min/max/avg = "
+                         f"{min(rsrps)}/{max(rsrps)}/{sum(rsrps)//len(rsrps)} dBm_")
+            lines.append("")
     if imsi_alerts:
         lines.append(f"### IMSI alerts (last 2h, {len(imsi_alerts)})")
         for a in imsi_alerts[:8]:

@@ -128,6 +128,28 @@ def cell_lookup(cfg: dict) -> dict | None:
     return base
 
 
+def cell_neighbors(cfg: dict) -> dict | None:
+    """Query der Neighbour-Cell-Liste vom Mudi-Modem via AT+QENG=neighbourcell.
+
+    Returns dict mit: timestamp, count, neighbours (list).
+    Neighbours: liste von {kind, rat, pci/uarfcn/arfcn, rsrp/rssi/rscp/rxlev,
+    rsrq/sinr/ecno, ...}. LTE-Neighbors haben nur PCI (Physical Cell ID),
+    keine CID -> OpenCelliD-Lookup nicht moeglich; aber RSRP/PCI/Count
+    sind die wertvollen Anomalie-Indikatoren.
+    None wenn Mudi unerreichbar oder Befehl fehlgeschlagen.
+    """
+    if not is_reachable(cfg):
+        return None
+    rc, out, _ = _run(cfg, _py_path(cfg, "cell_info.py --neighbours --json"),
+                      timeout=12)
+    if rc != 0 or not out.strip():
+        return None
+    try:
+        return json.loads(out)
+    except Exception:
+        return None
+
+
 def imsi_alerts_recent(cfg: dict, *, hours: int = 2) -> list[dict]:
     if not is_reachable(cfg):
         return []

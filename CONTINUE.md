@@ -78,6 +78,36 @@ Loesung: Pineapple-Daemons disablen wenn nicht gebraucht (siehe Backlog).
 2. BLE-Privacy-Adresse zwischen Argus-Scan und Finder-Start rotiert
 3. hci0-Konflikt mit pineapd (auch wenn pineapple-UI suspended).
 
+**alpha8: Cellular Anomaly Detection mit Neighbour Cells**
+- `raypager/python/cell_info.py` — `get_neighbor_cells()` parst
+  AT+QENG="neighbourcell" (LTE intra/inter, WCDMA, GSM formats).
+  CLI: `cell_info.py --neighbours --json`.
+- `python/core/mudi_client.py` — neue `cell_neighbors(cfg)` Methode,
+  laeuft parallel zu cell_info im ThreadPool (max_workers=4).
+- `python/core/cell_anomaly.py` — NEU. 8 Heuristiken H1-H8:
+  - H1: 0 Neighbours urban -> high (isolated tower)
+  - H2: <=2 Neighbours urban -> medium
+  - H3: Neighbour RSRP > Serving RSRP -> medium (lock-in)
+  - H4: Serving-RSRP-Sprung >20 dBm zwischen Polls -> high (Power-Boost)
+  - H4-low: Sprung 12-20 dBm -> medium
+  - H5: PCID-Wechsel bei stationaerem GPS (<30m) -> medium
+  - H7: >15 unique PCIs in Session -> medium (drift)
+  - H8: Serving >-60 dBm + <3 Neighbours -> medium
+  Plus `analyse_trend(snapshots)` fuer Multi-Poll-Detection.
+- `python/core/scan_engine.py` — _mudi_loop sammelt jetzt `cell_snapshots`
+  (ts/rsrp/pci/cid/rat/nb_count/neighbours/gps) bei jedem cell-tick.
+  Wird an analyser.run_all uebergeben.
+- `python/core/analyser.py` — Cellular & Catcher Block erweitert:
+  - Tower-Zeile zeigt jetzt auch PCI + Band + RSRP
+  - Neighbour Cells Tabelle (kind/rat/freq/pci/power/quality/sinr)
+  - Anomaly Score Block mit H-Code-Findings
+  - Session-Stat (rsrp min/max/avg ueber alle Polls)
+  - Threat-Bump: high -> threat=high, medium -> medium
+- Config-Toggle `cellular.urban` (default true) - rurale Tests
+  koennen H1/H2/H8 abschalten.
+- README: ausfuehrliches Vergleichskapitel argus-pager 1.x vs 2.0
+  (26 Zeilen Feature-Tabelle), neue "Cellular Anomaly Detection"-Section.
+
 **alpha7: argus-probe (BT-GATT)**
 - `argus-probe/payload.sh` als drittes Tool im Reconnaissance-Menue
   (Symlink im pager wie argus-finder/-wifi). Neben Sweep+Target-Mode
@@ -657,6 +687,49 @@ argus-pager-2.0/
 ---
 
 ## Naechste Schritte / Backlog
+
+### Geplanter Workflow (10.-11.05.2026)
+
+User-Plan:
+1. **Heute kurzer Test-Lauf** (~5-10 Min daheim) mit alpha8 — pruefen ob
+   Neighbour-Cells im Report auftauchen und Anomaly-Score sauber rechnet.
+2. **Morgen** waehrend Fahrt (1h Drive) + im Hotel (~1h association). Drive
+   liefert PCID-Changes + RSRP-Drift, Hotel liefert assoziierte WiFi-Captures
+   + InternetDB-Lookups + ggf. fremde IoT-Devices.
+3. **Wenn alles sauber laeuft** -> Daten-Cleanup:
+   - alte Argus-Reports/PCAPs/BT-JSONs vor 10.05. loeschen
+   - andere Reconnaissance-Payloads die wir nicht nutzen vom Pager loeschen
+     (argus-pager 1.x, alte argus-finder versions, etc.)
+   - argus-pager-2.0.before-alpha3 backup-dir loeschen
+   - Pager-OPSEC clean machen: SSH-keys auditen, Loot-Dirs leer, nur die
+     aktiven Tools im Menue
+4. **Dann der eigentliche Counter-Surveillance-Modus:** Daten-Persistenz
+   ueber Sessions:
+   - pairings.json (existiert, wird erweitert)
+   - suspects_db.json (existiert)
+   - **NEU: Attack-Surface-DB (SQLite auf Mudi)** — tables: sessions,
+     bt_devices, wifi_macs, pairings, incidents, gps_track, cell_history,
+     cellular_anomalies. argus-pager schreibt pro Run rein, Auswertung
+     spaeter via Jupyter/Web-UI/Maltego.
+   - Trend-Analysen ueber Wochen statt nur einzelne Sessions.
+
+### Was noch in der CONTINUE fehlt (User-Audit-Antwort)
+
+Vor dem Cleanup sollten folgende offene Punkte explizit dokumentiert sein:
+- [ ] API-Keys rotieren (shodan, fingerbank, opencellid - waren im
+      Chat-Verlauf exposed)
+- [ ] cyt-Submodule-Patches als formelle Upstream-PRs einreichen
+      (Probe-RSSI in pcap_engine, Address-Type-aware fingerprint, OUI-TTL)
+- [ ] Mudi-Setup wieder zuverlaessig: heute mehrfach offline
+      ("Name does not resolve") - braucht Sanity-Check der ~/.ssh/config
+- [ ] BLE-Privacy-Pattern-Whitelist (`70:b1:3d:ab:74:??` als ein Eintrag)
+- [ ] Pre-Cleanup-Snapshot: `tar` der aktuellen /root/loot/argus/ und
+      /root/payloads/user/reconnaissance/argus-* als Cold-Storage
+- [ ] Attack-Surface-DB-Schema festlegen (welche Tabellen, welche Felder
+      sind Required vs Optional, Index-Strategie)
+- [ ] Cleanup-Script schreiben: `tools/cleanup.sh` listet alle aktiven
+      Tools + erlaubt Auswahl was geloescht werden soll (interaktiv,
+      nicht destruktiv ohne Confirm)
 
 ### Verifikations-Tests fuer Release v2.1.0 (User)
 - [x] Heim-Run 08.05.: Save 50s, kein screenshot-spam, sauber rc=0
