@@ -131,23 +131,42 @@ def cell_lookup(cfg: dict) -> dict | None:
 def cell_neighbors(cfg: dict) -> dict | None:
     """Query der Neighbour-Cell-Liste vom Mudi-Modem via AT+QENG=neighbourcell.
 
-    Returns dict mit: timestamp, count, neighbours (list).
-    Neighbours: liste von {kind, rat, pci/uarfcn/arfcn, rsrp/rssi/rscp/rxlev,
-    rsrq/sinr/ecno, ...}. LTE-Neighbors haben nur PCI (Physical Cell ID),
-    keine CID -> OpenCelliD-Lookup nicht moeglich; aber RSRP/PCI/Count
-    sind die wertvollen Anomalie-Indikatoren.
-    None wenn Mudi unerreichbar oder Befehl fehlgeschlagen.
+    Nutzt das existierende ``neighbor_cells.py`` Skript am Mudi (das schon
+    der imsi_monitor erfolgreich nutzt). Returns dict mit Schema:
+
+        {"timestamp": int, "count": int, "neighbours": [...]}
+
+    Neighbours: list of {kind, rat, pci/uarfcn/arfcn, rsrp/rssi/rscp/rxlev,
+    rsrq/sinr/ecno, ...}. Schema-Anpassung: neighbor_cells.py liefert
+    ``{total, count_lte, count_wcdma, count_gsm, neighbors, warnings}``,
+    wir mappen das auf unser internes Schema (count + neighbours).
+
+    LTE-Neighbors haben nur PCI (Physical Cell ID), keine CID -> OpenCelliD-
+    Lookup nicht moeglich; aber RSRP/PCI/Count sind die wertvollen Anomalie-
+    Indikatoren. None wenn Mudi unerreichbar oder Befehl fehlgeschlagen.
     """
     if not is_reachable(cfg):
         return None
-    rc, out, _ = _run(cfg, _py_path(cfg, "cell_info.py --neighbours --json"),
-                      timeout=12)
-    if rc != 0 or not out.strip():
+    # neighbor_cells.py liegt im gleichen Verzeichnis wie cell_info.py
+    rc, out, _ = _run(cfg, _py_path(cfg, "neighbor_cells.py"), timeout=12)
+    # neighbor_cells.py exitet mit 2 wenn warnings vorhanden (e.g. 0 neighbours)
+    # - JSON-Output kommt aber trotzdem auf stdout. Daher nicht auf rc gaten.
+    if not out.strip():
         return None
     try:
-        return json.loads(out)
+        raw = json.loads(out)
     except Exception:
         return None
+    return {
+        "timestamp":  int(__import__("time").time()),
+        "count":      raw.get("total", 0),
+        "neighbours": raw.get("neighbors", []),
+        # zusaetzliche Felder die wir vom existing-Script bekommen
+        "count_lte":   raw.get("count_lte", 0),
+        "count_wcdma": raw.get("count_wcdma", 0),
+        "count_gsm":   raw.get("count_gsm", 0),
+        "warnings":    raw.get("warnings", []),
+    }
 
 
 def imsi_alerts_recent(cfg: dict, *, hours: int = 2) -> list[dict]:
