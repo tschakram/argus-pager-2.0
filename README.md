@@ -298,7 +298,7 @@ Das ist mächtiger als die einzelne Stichprobe — ein Catcher kann sich kurz
 verraten wenn er die Power hochdreht oder PCID wechselt, und der Trend
 fängt das ein.
 
-### Urban vs Rural Toggle
+### Urban vs Rural Toggle + Weak-Signal-Suppression
 
 Für rurale Tests (wo 0-1 Neighbours normal sind) kann der Urban-Assumption
 in `config.json` abgeschaltet werden:
@@ -310,6 +310,79 @@ in `config.json` abgeschaltet werden:
   }
 }
 ```
+
+Zusätzlich werden H1/H2/H8 **automatisch suspendiert** wenn die Serving-RSRP
+unter -100 dBm liegt: das Modem kann unterhalb des Empfangs-Limits keine
+Neighbours mehr decodieren, also ist 0 Neighbours dort kein Catcher-
+Indikator sondern Antennen-Limit. Diese Fälle werden als `H1-weak` /
+`H2-weak` (Severity LOW) statt HIGH/MEDIUM ausgewiesen.
+
+---
+
+## Offline OpenCelliD Lookup (SQLite)
+
+Statt jede Cell-ID gegen die OpenCelliD-API zu schicken (5-10 s pro Call,
+Rate-Limited, leakt Cell-IDs), kann argus 2.0 die Country-CSV-Dumps von
+OpenCelliD lokal halten und gegen eine SQLite-DB lookupen.
+
+**Vorteile:**
+- ⚡ **<20 ms** statt 5-10 s pro Lookup (50× schneller)
+- 🔒 keine Cell-IDs leaken an OpenCelliD-API
+- 📵 funktioniert ohne LTE-Verbindung
+- 🚗 bei Drives mit hundreden Cells/Stunde — kein API-Rate-Limit mehr
+
+**Build + Deploy:**
+
+```bash
+# 1. Country-CSV holen (z.B. Litauen):
+curl -O https://opencellid.org/.../246.csv.gz   # ~190 KB
+
+# 2. Konvertieren:
+python3 tools/opencellid_import.py 246.csv.gz cells_lt.sqlite
+# → ~880 KB SQLite mit ~8.6k cells
+
+# 3. Auf Mudi deployen:
+scp cells_lt.sqlite pager:/tmp/                 # über Pager-Hop, weil
+ssh pager 'cat /tmp/cells_lt.sqlite | \         # Mudi keinen sftp hat
+    ssh mudi "cat > /root/loot/raypager/cell_db/cells.sqlite"'
+
+# 4. Inspektion:
+python3 tools/opencellid_import.py --info cells_lt.sqlite
+```
+
+**Hybrid-Lookup-Flow** (im patched `opencellid.py`):
+1. **Offline-DB first** — Hit → CLEAN/MISMATCH je nach distance-check
+2. **API-Fallback** — wenn `cellular.api_fallback=true` und Cell nicht
+   offline → klassischer API-Call
+3. **Pure-Offline-Modus** — `api_fallback=false` → DB-Miss bleibt UNKNOWN
+
+```jsonc
+// Mudi config.json
+{
+  "opencellid_key": "...",
+  "cellular": {
+    "offline_db_path": "/root/loot/raypager/cell_db/cells.sqlite",
+    "api_fallback":    true     // false = max privacy, pure offline
+  }
+}
+```
+
+**Private Cells einfügen** (z.B. Heim-Zelle die nicht in OpenCelliD ist):
+
+```python
+import sqlite3
+c = sqlite3.connect("/root/loot/raypager/cell_db/cells.sqlite").cursor()
+c.execute("INSERT OR REPLACE INTO cells "
+          "(radio,mcc,mnc,area,cell,lat,lon,range_m,samples,updated) "
+          "VALUES (?,?,?,?,?,?,?,?,?,?)",
+          ("LTE", 246, 2, 142, 1056790,
+           54.844, 25.461, 500, 999, 1778600000))
+c.connection.commit()
+```
+
+Damit wird die Heim-Zelle als **CLEAN** klassifiziert statt UNKNOWN —
+keine falsche Threat-Eskalation mehr nur weil OpenCelliD die Cell nicht
+crowd-sourced hat.
 
 ---
 

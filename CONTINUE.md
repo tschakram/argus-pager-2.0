@@ -78,6 +78,33 @@ Loesung: Pineapple-Daemons disablen wenn nicht gebraucht (siehe Backlog).
 2. BLE-Privacy-Adresse zwischen Argus-Scan und Finder-Start rotiert
 3. hci0-Konflikt mit pineapd (auch wenn pineapple-UI suspended).
 
+**alpha9: Offline OpenCelliD + Heim-Zelle + weak-signal Anomaly-Fix**
+(12.05. nach 1. Test-Run der alpha8)
+
+Heutiger Test-Run zeigte Anomaly-Score=HIGH wegen [H1] 0 Neighbours -
+aber RSRP war -104 dBm (am Empfangs-Limit). Modem kann dort keine
+Neighbours mehr decoden -> false positive in H1. Fix: weak-signal-
+Schwelle bei RSRP < -100 suspendiert H1/H2/H8 zu LOW-Severity-Hinweisen.
+
+User hat das OpenCelliD-Country-CSV fuer Litauen (246.csv.gz) lokal
+heruntergeladen. Wir bauen daraus eine offline SQLite-DB:
+- tools/opencellid_import.py liest .csv(.gz), schreibt SQLite mit
+  PRIMARY KEY (mcc,mnc,area,cell). 8646 cells in 0.1s.
+- Hochgeladen auf Mudi: /root/loot/raypager/cell_db/cells.sqlite (868 KB)
+- Heim-Zellen (CID 1056780 + 1056790, TAC 142 BITE LT) manuell
+  eingetragen mit Approximation-GPS (54.844, 25.461) - waren beide
+  NICHT im OpenCelliD-Dump.
+- raypager/python/opencellid.py: _offline_lookup() neu, lookup() jetzt
+  offline-first. Nur bei Miss + api_fallback=true API-Call. Distance-
+  Check auch fuer offline-hits. Source-Marker im result-dict.
+- Mudi-config.json bekommt cellular.{offline_db_path, api_fallback, urban}
+
+Smoke-Test (echte Mudi-Calls):
+  T1 Heim 1056790:      CLEAN  offline  18.7 ms  (vorher UNKNOWN)
+  T2 echte BITE-Cell:   MISMATCH offline 14.1 ms  (21.9 km weg)
+  T3 bogus cell:        UNKNOWN  api     866 ms   (fallback aktiv)
+Offline-Lookup ca. 50x schneller als API.
+
 **alpha8: Cellular Anomaly Detection mit Neighbour Cells**
 - `raypager/python/cell_info.py` — `get_neighbor_cells()` parst
   AT+QENG="neighbourcell" (LTE intra/inter, WCDMA, GSM formats).

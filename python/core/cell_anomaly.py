@@ -69,17 +69,33 @@ def analyse_snapshot(cell: dict, neighbours: dict | None,
     serving_rsrp = cell.get("rsrp") if cell else None
     serving_pci  = cell.get("pcid", cell.get("pci")) if cell else None
 
+    # Weak-Signal-Schwelle: Modem kann unterhalb von -100 dBm RSRP keine
+    # Neighbours mehr decoden, selbst wenn welche da sind. H1/H2/H8 sind
+    # in dem Fall nicht aussagekraeftig (false positive).
+    weak_signal = (serving_rsrp is not None and serving_rsrp < -100)
+
     # H1: 0 Neighbours urban
     if nb_count == 0 and assume_urban and cell and cell.get("rat") == "LTE":
-        findings.append(("H1", RISK_HIGH,
-                         "0 Neighbour Cells trotz urbaner Region - "
-                         "isolierter Tower (Catcher-Indikator)"))
-        risk = _max(risk, RISK_HIGH)
+        if weak_signal:
+            findings.append(("H1-weak", RISK_LOW,
+                             f"0 Neighbour Cells, aber RSRP {serving_rsrp} dBm "
+                             "sehr schwach - Modem kann Neighbours nicht decoden, "
+                             "keine Catcher-Aussage moeglich"))
+        else:
+            findings.append(("H1", RISK_HIGH,
+                             "0 Neighbour Cells trotz urbaner Region - "
+                             "isolierter Tower (Catcher-Indikator)"))
+            risk = _max(risk, RISK_HIGH)
     elif 0 < nb_count <= 2 and assume_urban and cell and cell.get("rat") == "LTE":
-        findings.append(("H2", RISK_MEDIUM,
-                         f"Nur {nb_count} Neighbour Cells - "
-                         "ungewoehnlich wenig fuer urbane Region"))
-        risk = _max(risk, RISK_MEDIUM)
+        if weak_signal:
+            findings.append(("H2-weak", RISK_LOW,
+                             f"Nur {nb_count} Neighbours bei schwachem "
+                             f"RSRP {serving_rsrp} dBm - kein Catcher-Indikator"))
+        else:
+            findings.append(("H2", RISK_MEDIUM,
+                             f"Nur {nb_count} Neighbour Cells - "
+                             "ungewoehnlich wenig fuer urbane Region"))
+            risk = _max(risk, RISK_MEDIUM)
 
     # H3: Neighbour RSRP staerker als Serving (lock-in)
     if serving_rsrp is not None and nb_list:
@@ -104,8 +120,9 @@ def analyse_snapshot(cell: dict, neighbours: dict | None,
         risk = _max(risk, RISK_MEDIUM)
 
     # H8: Serving RSRP sehr stark + wenige Neighbours
+    # (nicht relevant bei weak signal)
     if (serving_rsrp is not None and serving_rsrp > -60
-            and nb_count < 3 and assume_urban):
+            and nb_count < 3 and assume_urban and not weak_signal):
         findings.append(("H8", RISK_MEDIUM,
                          f"Serving RSRP {serving_rsrp} dBm sehr stark, "
                          f"aber nur {nb_count} Neighbours - "
