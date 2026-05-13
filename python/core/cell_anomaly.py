@@ -164,27 +164,57 @@ def analyse_trend(snapshots: list[dict]) -> dict:
                 "rsrp_jump_max": 0, "pci_changes": 0}
 
     # H4: RSRP-Sprung zwischen zwei aufeinanderfolgenden Polls
+    #
+    # GPS-aware: ein 30-dBm-Sprung beim Drive (alte Cell -> neue Cell) ist
+    # normal, KEIN Catcher-Indikator. Wenn zwischen den zwei Polls > 100 m
+    # zurueckgelegt wurden ODER die Serving-PCI gewechselt hat, dann ist
+    # der Sprung durch Bewegung/Handover erklaert.
+    # H4 triggert nur bei stationaerem GPS + gleicher PCI + grossem Sprung
+    # (= echter Power-Boost auf derselben Cell).
+    H4_DISTANCE_THRESHOLD_M = 100
     rsrp_jump_max = 0
     rsrp_jump_event = None
+    rsrp_jump_stationary = False
     for i in range(1, len(snapshots)):
-        a = snapshots[i - 1].get("serving_rsrp")
-        b = snapshots[i].get("serving_rsrp")
-        if a is None or b is None:
+        a = snapshots[i - 1]
+        b = snapshots[i]
+        ra = a.get("serving_rsrp")
+        rb = b.get("serving_rsrp")
+        if ra is None or rb is None:
             continue
-        delta = abs(b - a)
-        if delta > rsrp_jump_max:
-            rsrp_jump_max = delta
-            rsrp_jump_event = (snapshots[i - 1], snapshots[i])
-    if rsrp_jump_max >= 20:
+        delta = abs(rb - ra)
+        if delta <= rsrp_jump_max:
+            continue
+        # GPS-Distanz zwischen den zwei Polls (grobe Naeherung)
+        try:
+            dlat = (b.get("gps_lat", 0) - a.get("gps_lat", 0)) * 111000
+            dlon = (b.get("gps_lon", 0) - a.get("gps_lon", 0)) * 70000
+            dist = (dlat * dlat + dlon * dlon) ** 0.5
+        except Exception:
+            dist = -1   # GPS unbekannt
+        same_pci = (a.get("serving_pci") == b.get("serving_pci")
+                    and a.get("serving_pci") is not None)
+        # Bewegung erklaert den Sprung -> ignorieren
+        if dist > H4_DISTANCE_THRESHOLD_M:
+            continue
+        # Cell-Wechsel erklaert den Sprung -> ignorieren
+        if not same_pci:
+            continue
+        rsrp_jump_max = delta
+        rsrp_jump_event = (a, b)
+        rsrp_jump_stationary = True
+
+    if rsrp_jump_stationary and rsrp_jump_max >= 20:
         a, b = rsrp_jump_event
         findings.append(("H4", RISK_HIGH,
-                         f"Serving RSRP-Sprung {a.get('serving_rsrp')} -> "
-                         f"{b.get('serving_rsrp')} dBm (delta {rsrp_jump_max}) "
-                         "- Power-Boost-Indikator"))
+                         f"Stationary RSRP-Sprung {a.get('serving_rsrp')} -> "
+                         f"{b.get('serving_rsrp')} dBm (delta {rsrp_jump_max}, "
+                         f"gleiche PCI) - Power-Boost-Indikator"))
         risk = _max(risk, RISK_HIGH)
-    elif rsrp_jump_max >= 12:
+    elif rsrp_jump_stationary and rsrp_jump_max >= 12:
         findings.append(("H4-low", RISK_MEDIUM,
-                         f"Moderater Serving-RSRP-Sprung delta {rsrp_jump_max} dBm"))
+                         f"Moderater Stationary-RSRP-Sprung delta "
+                         f"{rsrp_jump_max} dBm"))
         risk = _max(risk, RISK_MEDIUM)
 
     # H5: PCID-Wechsel bei stationaerem GPS
