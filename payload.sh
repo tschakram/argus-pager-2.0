@@ -93,11 +93,13 @@ restore() {
 }
 trap restore EXIT INT TERM HUP
 
-# ── Run python with a 4-hour hard ceiling ──────────────────────────────
-# Long walks / drives + analyser run can easily exceed 30 min. We still
-# want a safety net so a hung subprocess doesn't run forever.
+# ── Run python with a 6-hour hard ceiling ──────────────────────────────
+# Long walks / drives + endurance home-tests + analyser run can easily
+# exceed 4h. 6h gives headroom for a 5h endurance session plus ~30-60s
+# save-time at the end. The cap is a safety net so a hung subprocess
+# doesn't run forever - real runs are typically far shorter.
 echo "→ python3 -u python/main.py"
-timeout --signal=TERM --kill-after=10s 14400 \
+timeout --signal=TERM --kill-after=10s 21600 \
     python3 -u "$PAYLOAD_DIR/python/main.py" "$@"
 rc=$?
 echo "python main.py exited with rc=$rc"
