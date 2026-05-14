@@ -78,6 +78,34 @@ Loesung: Pineapple-Daemons disablen wenn nicht gebraucht (siehe Backlog).
 2. BLE-Privacy-Adresse zwischen Argus-Scan und Finder-Start rotiert
 3. hci0-Konflikt mit pineapd (auch wenn pineapple-UI suspended).
 
+**alpha10: BT MSD-Subtype-Klassifikation + H4 GPS-aware (14.05.)**
+(nach Drive-Test 13.05.03:24)
+
+Drive-Test zeigte zwei False-Positive-Probleme:
+1. H4 Power-Boost-Anomaly triggered bei 30 dBm RSRP-Sprung WAEHREND
+   eines Cell-Wechsels im Drive (= normales Handover, kein Catcher)
+2. 32 BT-Geraete als HIGH-Tracker geflaggt - fast alle iPhones/
+   Galaxy-Phones im Continuity-Mode (RPA + CompanyID 76/117)
+
+Fixes:
+- cell_anomaly.analyse_trend: H4 ist jetzt GPS-aware. Triggert nur
+  bei stationaerem GPS (<100m) UND gleicher PCI. Drive-Pattern
+  (Bewegung + Cell-Wechsel) erklaert RSRP-Sprung -> kein Trigger.
+- cyt/bt_scanner.py: erfasst MSD raw-bytes (msd_hex). Pattern:
+  btmon zeigt nach "Company:" eine "Data: 12 19 00 ..." Zeile.
+- cyt/bt_fingerprint.py: APPLE_MSD_SUBTYPES dict mit 17 dokumentierten
+  Continuity-Types. Nur 0x12/0x14/0x16 = AirTag/FindMy = TRACKER.
+  Alle anderen (0x10 Nearby, 0x07 AirPods etc.) = Apple-Device.
+  Samsung-Patterns: '01000200' SmartTag, '4204' Phone, '0104' Buds.
+- Heim-Cells 1155628 (Band 1) + 1432916 (Band 40) in offline-DB
+  ergaenzt - heutige Drive zeigte die als UNKNOWN.
+
+Wirkung: beim Hotel-Test wird nur echter AirTag/SmartTag-Beacon
+als HIGH-Tracker erscheinen. iPhones/Watches/Galaxy-Phones in
+Continuity-Mode -> low, nicht has_tracker. Drive-Threat im
+Re-Run 13.05. ging HIGH -> MEDIUM (H4-Fix wirkt fuer Cellular,
+BT-Klassifikation greift erst bei neuen Daten mit msd_hex).
+
 **alpha9: Offline OpenCelliD + Heim-Zelle + weak-signal Anomaly-Fix**
 (12.05. nach 1. Test-Run der alpha8)
 
