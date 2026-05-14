@@ -68,6 +68,12 @@ class ScanEngine:
         self.cell_snapshots: list[dict] = []
         self._cell_snapshots_lock = threading.Lock()
         self._last_gps: tuple[float, float] | None = None
+        # Sticky-Mode: GPS-Status springt nicht sofort auf "no-fix" bei
+        # einer einzelnen failed gps_get(). Erst nach GPS_LOCK_STALE_S
+        # ohne erfolgreichen Fix wird "stale" oder "no-fix" angezeigt.
+        # Endurance-Test 14.05. zeigte: einzelne Mudi-Timeouts triggern
+        # sonst "no-fix" obwohl GPS in der Sekunde davor noch lieferte.
+        self._last_gps_ts: float = 0.0
         self._wifi: wifi_watcher.WifiWatcher | None = None
         self._deauth_summary: dict = {}
         self.iface = (config.get("deauth") or {}).get("iface", "wlan1mon")
@@ -403,6 +409,9 @@ class ScanEngine:
 
     # ── Mudi sampler (background) ────────────────────────────────────
 
+    GPS_LOCK_STALE_S = 30   # nach 30s ohne Fix -> "stale"
+    GPS_LOCK_LOST_S  = 90   # nach 90s ohne Fix -> "no-fix"
+
     def _mudi_loop(self) -> None:
         sample_interval = 10
         cell_every_n    = 6   # cell-info every 60s
@@ -412,15 +421,28 @@ class ScanEngine:
                 try:
                     if self.preset.get("gps_mudi"):
                         pos = mudi_client.gps_get(self.config, timeout_s=8)
+                        now = time.time()
                         if pos:
                             self._last_gps = pos
+                            self._last_gps_ts = now
                             with self._stats_lock:
                                 self._stats["gps"] = "lock"
                             with self.gps_track.open("a", encoding="utf-8") as f:
-                                f.write(f"{int(time.time())},{pos[0]:.6f},{pos[1]:.6f}\n")
+                                f.write(f"{int(now)},{pos[0]:.6f},{pos[1]:.6f}\n")
                         else:
-                            with self._stats_lock:
-                                self._stats["gps"] = "no-fix"
+                            # Sticky-Mode: einzelne fails clobbern nicht
+                            # sofort den UI-Status. Erst nach STALE_S "stale",
+                            # nach LOST_S endgueltig "no-fix".
+                            age = now - self._last_gps_ts if self._last_gps_ts else 999
+                            if age < self.GPS_LOCK_STALE_S:
+                                # noch frischer Fix vorhanden - kein UI-Wechsel
+                                pass
+                            elif age < self.GPS_LOCK_LOST_S:
+                                with self._stats_lock:
+                                    self._stats["gps"] = "stale"
+                            else:
+                                with self._stats_lock:
+                                    self._stats["gps"] = "no-fix"
                     if self.preset.get("cell") and (tick % cell_every_n) == 0:
                         info = mudi_client.cell_info(self.config)
                         nbs  = mudi_client.cell_neighbors(self.config)
