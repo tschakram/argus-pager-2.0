@@ -4,7 +4,7 @@
 die Frage beantwortet: *"Wer überwacht mich gerade — und wie?"*
 
 <p align="center">
-  <img src="docs/screenshots/hardware.jpg" alt="WiFi Pineapple Pager (Argus 2.0 Splash) + GL-iNet Mudi V2 mit GNSS-USB" width="640">
+  <img src="docs/screenshots/hardware.JPG" alt="WiFi Pineapple Pager (Argus 2.0 Splash) + GL-iNet Mudi V2 mit GNSS-USB" width="640">
   <br>
   <em>Hardware-Stack: WiFi Pineapple Pager (links, mit Argus-Splash) + GL-iNet Mudi V2 (rechts, LTE/GPS-Bridge mit u-blox GNSS-USB-Dongle)</em>
 </p>
