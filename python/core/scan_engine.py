@@ -409,8 +409,12 @@ class ScanEngine:
 
     # ── Mudi sampler (background) ────────────────────────────────────
 
-    GPS_LOCK_STALE_S = 30   # nach 30s ohne Fix -> "stale"
-    GPS_LOCK_LOST_S  = 90   # nach 90s ohne Fix -> "no-fix"
+    GPS_LOCK_STALE_S = 60   # nach 60s ohne Fix -> "stale" (war 30, indoor-tolerant)
+    GPS_LOCK_LOST_S  = 240  # nach 4 min ohne Fix -> "no-fix" (war 90s, indoor-tolerant)
+    # Indoor-NMEA-Studie 14.05.: u-blox M8130 verliert Fix oft fuer 60-120s
+    # ohne dass der Sat-Pool weg ist. Argus soll dann nicht "no-fix" zeigen
+    # weil der User sonst denkt das System sei kaputt. Lieber "stale" mit
+    # last-fix-age im Header anzeigen.
 
     def _mudi_loop(self) -> None:
         sample_interval = 10
