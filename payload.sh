@@ -80,10 +80,30 @@ if [ -n "$PINEAPPLE_PID" ]; then
     echo "framework UI paused (pineapd & wlan0mon still running)"
 fi
 
+# ── Endurance-Monitor (passive Observer, auto-cleanup) ─────────────────
+# Schreibt alle 60s nach /root/loot/argus/logs/endurance.<ts>.log:
+#   load average, free MB, disk usage, PCAP+BT counter, python-RSS.
+# Wird automatisch beim restore-trap mit-gekillt damit kein Zombie
+# zwischen Sessions bleibt. Stoere keinen Argus-Workflow - rein RO.
+# Erst alte Monitor-Instanzen weghauen (Sessions koennten sich
+# ueberlappen wenn vorherige unsauber endete).
+pkill -f endurance_monitor.sh 2>/dev/null || true
+sleep 0.2
+"$PAYLOAD_DIR/tools/endurance_monitor.sh" 60 >/dev/null 2>&1 &
+MONITOR_PID=$!
+echo "endurance-monitor-pid=$MONITOR_PID"
+
 # ── Always restore the framework on ANY exit ────────────────────────────
 restore() {
     rc=$?
     echo "[trap rc=$rc] resuming framework UI…"
+    # Endurance-Monitor stoppen (sonst Zombie bis naechster reboot)
+    if [ -n "$MONITOR_PID" ]; then
+        kill "$MONITOR_PID" 2>/dev/null || true
+    fi
+    # Falls weitere endurance_monitor-Instanzen leben (durch session-
+    # ueberlappung), alle aufraeumen:
+    pkill -f endurance_monitor.sh 2>/dev/null || true
     if [ -n "$PINEAPPLE_PID" ]; then
         kill -CONT "$PINEAPPLE_PID" 2>/dev/null || true
     fi
