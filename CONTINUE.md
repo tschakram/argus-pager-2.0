@@ -68,8 +68,8 @@ Migration fuer User: bestehende 53 exact-MACs in
 `/root/loot/argus/ignore_lists/mac_list.json` koennen so bleiben oder
 schrittweise durch Patterns ersetzt werden. Beispiel:
 ```
-"70:b1:3d:ab:74:??"   ersetzt alle Samsung-TV-Rotations-Adressen
-"<intel-oui>:??:??:??" ersetzt alle Intel-Laptop-randomized-Probes
+"<samsung-oui>:??:??:??" ersetzt Samsung-TV-Rotations-Adressen
+"<intel-oui>:??:??:??"   ersetzt Intel-Laptop-randomized-Probes
 ```
 
 Live-Test gegen Samsung-TV-Rotation steht aus (naechster Argus-Run).

@@ -80,6 +80,27 @@ if echo "$diff_content" | grep -E '^\+' \
   fi
 fi
 
+# 2a) Wildcard MAC patterns (e.g. "aa:bb:cc:dd:ee:??"). The non-wildcard
+#     bytes can still leak a real OUI / device sector. Allowed wildcard
+#     patterns must use a placeholder OUI from the whitelist below.
+#
+# Whitelist (every byte is hex OR exactly two '?'):
+#   aa:bb:cc:dd:ee:??   aa:bb:cc:dd:??:??   aa:bb:cc:??:??:??
+#   aa:00:00:00:00:??
+#   ca:fe:ca:fe:??:??   ca:fe:ca:??:??:??
+#   de:ad:be:ef:??:??   de:ad:be:??:??:??
+if echo "$diff_content" | grep -E '^\+' \
+   | grep -qiE '\b([0-9a-f?]{2}:){5}[0-9a-f?]{2}\b'; then
+  pat_hits=$(echo "$diff_content" | grep -E '^\+' \
+    | grep -ioE '\b([0-9a-f?]{2}:){5}[0-9a-f?]{2}\b' \
+    | grep -E '\?' \
+    | grep -ivE '^(aa:bb:cc:dd:ee:\?\?|aa:bb:cc:dd:\?\?:\?\?|aa:bb:cc:\?\?:\?\?:\?\?|aa:00:00:00:00:\?\?|ca:fe:ca:fe:\?\?:\?\?|ca:fe:ca:\?\?:\?\?:\?\?|de:ad:be:ef:\?\?:\?\?|de:ad:be:\?\?:\?\?:\?\?)$' || true)
+  if [ -n "$pat_hits" ]; then
+    say_block "Wildcard MAC pattern with real OUI in diff: $pat_hits"
+    echo "    Use de:ad:be:ef:??:?? or ca:fe:ca:fe:??:?? as placeholder." >&2
+  fi
+fi
+
 # 3) API keys (WiGLE token, OpenCelliD pf-token, Shodan, Fingerbank)
 key_re='(api[_-]?(key|token)|wigle[_-]?api|opencellid[_-]?key|shodan[_-]?api|fingerbank[_-]?api)'
 if echo "$diff_content" | grep -E '^\+' | grep -iE "$key_re" \
