@@ -78,6 +78,47 @@ Loesung: Pineapple-Daemons disablen wenn nicht gebraucht (siehe Backlog).
 2. BLE-Privacy-Adresse zwischen Argus-Scan und Finder-Start rotiert
 3. hci0-Konflikt mit pineapd (auch wenn pineapple-UI suspended).
 
+**Stand 15.05. — Heim-Setup-Korrektur + alpha10.x Fixes**
+
+Heim-WLAN-Layout korrigiert (CONTINUE hatte alte FritzBox-Annahme):
+- **TP-Link Archer (Wi-Fi 6E)** ist der Heim-Router, SSIDs
+  `TP-Link_A3F2_2G` + `TP-Link_A3F2_6G`. Admin via tplinkwifi.net /
+  192.168.0.1 oder 192.168.1.1.
+- **FritzBox 7583 nicht mehr im Haushalt.**
+- **LG Smart-Refrigerator** mit eigenem WLAN-Modul (SSID
+  `[LG_Refrigerator]cc01`) - eigenes Geraet, harmlos. SmartThinQ-Module
+  taucht ggf. auch in BT-Reports auf.
+- Pager bekommt Internet weiter via Mudi-LTE (wlan0cli zum Mudi). Der
+  TP-Link ist parallel im Haus aber Pager assoziiert nicht damit.
+
+40min-Run 15.05.11:54: **alle alpha-Fixes wirken zusammen sauber**:
+- BT-JSONs: 19/19 (alpha10.1 select()-Fix bestaetigt)
+- Samsung TVs: risk=none, msd=4204... (alpha10 MSD-Logic)
+- Heim-Cell 1056780: CLEAN (alpha9 offline-DB)
+- Anomaly Score: kein H1-False bei -103 dBm (weak-signal-Suppression)
+- Threat: MEDIUM nur wegen 2 stable pairings (Samsung TVs in pairings)
+
+Endurance-Monitor: payload.sh startet ihn jetzt automatisch (war beim
+14.05.-5h-Run nicht mit-an, weil mein nohup ausserhalb des
+Pager-Reboots nicht ueberlebte).
+
+GPS sticky-Schwellen gelockert (30/90s -> 60/240s) wegen indoor-blip-
+Toleranz. Neues tools/gps_health.sh diagnostiziert Hardware-side ob
+NMEA / 0 sats / FIX OK.
+
+Sweep-Mode (argus-finder-wifi --A): drei Bugs gefixt
+(1635a93) - ignore_list-Filter (Samsung TVs verschwanden noch nicht),
+AGE_OUT_WIFI_S 30s -> 120s (Intel-MAC Probe-Intervall 1-3min),
+Scroll-Bound-Check.
+
+Intel-MAC `<redacted-mac-intel-laptop>` (Top-Verdaechtiger im 40min-
+Run, score 0.58, RSSI -18..-50 dBm) NICHT als Stalker bestaetigt:
+PCAP-Analyse zeigt broadcast-Probes (kein SSID-Name) auf 2.4 GHz
+(Ch1/6/11), 5 GHz (Ch36/44/48) und 6 GHz (Ch1) - klassisches
+Wi-Fi-6E-Roaming-Verhalten eines modernen Laptops (Intel AX211/BE200).
+Wahrscheinlich eigenes Geraet das mit dem TP-Link verbunden ist.
+Verifikation via TP-Link-Admin steht aus.
+
 **alpha10: BT MSD-Subtype-Klassifikation + H4 GPS-aware (14.05.)**
 (nach Drive-Test 13.05.03:24)
 
@@ -290,7 +331,10 @@ Falls Watch-Target gewuenscht: `watch_list.json` Eintrag.
   richtige Tool fuer WiFi-MAC `<redacted-mac-espressif>`**
 - `argus-finder` — eigenes BT-RSSI-Tool, aber nur fuer BT-Tracker.
   WiFi-Variante nicht gebaut.
-- FritzBox 7583 WebUI -> Heimnetz -> MAC-Suche
+- **TP-Link Archer (SSID `TP-Link_A3F2_2G` / `TP-Link_A3F2_6G`, Wi-Fi 6E
+  mit 2.4/5/6 GHz)** WebUI auf `http://tplinkwifi.net` oder
+  `192.168.0.1`/`192.168.1.1` -> Network Map / Clients -> MAC-Suche.
+  Heim-Router, kein FritzBox mehr im Haushalt (15.05.).
 - `tcpdump -enttiI wlan1mon -y IEEE802_11_RADIO 'wlan addr2 == ...'`
   + RSSI-Trend manuell
 
@@ -794,10 +838,12 @@ Vor dem Cleanup sollten folgende offene Punkte explizit dokumentiert sein:
 - [ ] Falls alle gruen -> `git tag v2.1.0 && git push origin main && git push origin v2.1.0`
 
 ### Open vom 08.05.
-- [ ] **Espressif `<redacted-mac-espressif>` identifizieren** via device_hunter
-      (RSSI-Tracking) oder FritzBox-WebUI. Falls eigen -> ignore_list
-      mit Kommentar; falls fremd Nachbar-IoT -> ignore_list mit "Nachbar
-      IoT seit 30.04.".
+- [x] **Espressif `<redacted-mac-espressif>` identifiziert** als
+      "nicht meiner, ignoriert" - in ignore_list (08.05.).
+- [x] **Intel-MAC `<redacted-mac-intel-laptop>` identifiziert** als
+      Familien-Laptop (Onkel Sam, Intel Wi-Fi 6E AX2xx/BE200). 15.05.
+      auf ignore_list (53 entries). Wi-Fi-6E broadcast Roaming-Probes
+      auf 2.4/5/6 GHz, RSSI -18..-50 dBm = im Haushalt.
 - [ ] **`<redacted-mac-samsung-tag-unknown>`** (Samsung SmartTag, 8 Sessions) identifizieren
       via Samsung Find-My-App. Falls eigen -> ignore. Falls fremd -> physisch
       suchen (Tasche/Mantel/Auto), Find-My im Ortungs-Modus piepen lassen.
