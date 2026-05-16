@@ -12,14 +12,164 @@ WiFi-/BT-Geräte, IMSI-Catcher und Silent-SMS während man sich bewegt.
 
 ---
 
-## Aktueller Stand (10.05.2026)
+## Aktueller Stand (15.05.2026)
 
 - Repo: `github.com/tschakram/argus-pager-2.0`
-- **Letzter Commit (LOKAL auf Pager): `f6bfef7` —
-  `v2.1.0-alpha3: simplified UX, sensor pipeline, external intel, OPSEC`**
-- GitHub `origin/main`: weiterhin auf `005a6df` (alpha9) — **NICHT gepusht**.
-- Geplanter naechster Commit (in Vorbereitung):
-  `v2.1.0-alpha4: argus finder + probe-request RSSI`
+- **HEAD `3bb9d69`** (origin/main) - alle alpha10.x Fixes gepushed
+- Lokaler Pager-Workdir entspricht origin/main
+- cyt-Submodule HEAD `0b70048` (main, gepushed)
+- raypager-Submodule HEAD `fa3114b` (master, gepushed)
+
+## NAECHSTE ARBEIT (Start-Reihenfolge)
+
+User-Entscheidung 16.05.: drei Tasks abarbeiten, dann Pivot.
+
+### Task 1: cyt-Patches als Upstream-PRs
+
+Unsere cyt/-Patches im `tschakram/chasing-your-tail-pager` Fork
+sollten zum echten Upstream (RocketGod-Original) als PRs:
+
+| Commit  | Was                                              | PR-Wert |
+|---------|--------------------------------------------------|---------|
+| 0b70048 | bt_scanner select()-non-blocking + robust kill  | HOCH (echter Bug) |
+| c725116 | Apple/Samsung MSD-Subtype-Klassifikation        | HOCH (Tracker-False-Positive-Fix) |
+| ad97be0 | address-type aware fingerprint (Public/RPA)     | HOCH |
+| 5ac365c | probe-request RSSI in pcap_engine               | MEDIUM (feature) |
+| (alt)   | oui_lookup TTL 7->365                            | LOW (controversial) |
+| (alt)   | bt_scanner BT_SCANNER_NO_LOCAL_GPS env          | LOW (pager-spezifisch) |
+
+Schritte:
+1. Echtes Upstream-Repo identifizieren (RocketGod/chasing-your-tail-ng?)
+2. Pro PR ein clean topic-branch
+3. Commit-Message reformulieren (englisch, generic, ohne Pager-Bezug)
+4. Test-Cases beilegen wo moeglich
+5. PR submitten
+
+### Task 2: BLE-Privacy-Pattern-Whitelist
+
+Aktuell: ignore_list haelt 53 exact-MAC-eintraege. Samsung TVs
+rotieren ihre BLE-Adresse ~alle 15 Min - jede neue Adresse wird
+wieder als verdaechtig geflaggt bis User sie ergaenzt.
+
+Loesung: Pattern-Matching in ignore-list. Format (Beispiel mit
+Placeholder-OUIs, echte werden user-side ergaenzt):
+```json
+"ignore_macs": [
+    "<oui-A>:<rest>:??",     // alle 256 Variants Sektor A
+    "<oui-B>:<rest>:??",     // Sektor B
+    ...exact_macs...
+]
+```
+
+Implementation:
+- `target_loader._load_ignore()` parst Patterns mit `??`
+- `ui_sweep._load_ignore_macs()` dito
+- `bt_fingerprint`/`analyze_pcap` mac-matching mit fnmatch oder regex
+- Migration: bestehende exact-MACs koennen bleiben
+
+Acceptance:
+- 3 TV-Patterns ersetzen ~10 exact-eintraege
+- Naechster Argus-Run flaggt KEINE neue Samsung-TV-Rotation
+
+### Task 3: DHCP-Fingerprint-Extraktion
+
+Hotel-Test-relevant. Aktuell: bei assoziierten WiFi-Captures
+sehen wir nur Probe-Requests (keine SSID-Names bei Wi-Fi 6E).
+DHCP-Discover-Pakete enthalten Option 55 "Parameter Request List"
+- ein Geraete-Fingerprint der via Fingerbank-API in
+Hersteller+Modell aufgeloest werden kann.
+
+Implementation:
+- `cyt/python/pcap_engine.py` neue `read_pcap_dhcp(pcap)` Funktion
+  parst Option 55 + 60 + 12 (hostname) aus DHCPDISCOVER/REQUEST
+- Output: `{mac: {opt55, opt60, hostname, ...}}`
+- `core/external_intel.py` queryt Fingerbank mit opt55-hash
+- Report-Block "DHCP Fingerprints": MAC | hostname | inferred device
+
+Acceptance:
+- Im Hotel-Test (assoziiert mit Hotel-AP) wird mind. 1 DHCP-Frame
+  capturet und an Fingerbank geschickt
+- Devices wie "Apple iPhone", "Samsung TV", "Sonos Speaker" werden
+  korrekt aufgeloest
+
+---
+
+## MEIN PIVOT-VORSCHLAG (nach den 3 Tasks)
+
+Wir haben in 14 alpha-Commits seit Anfang Mai vor allem Bugs gefixt.
+Keiner der "Verdaechtigen" war ein echter Stalker (Espressif Nachbar,
+Samsung TVs, Intel Onkel-Sam-Laptop, Xiaomi eigenes Phone). Echte
+Bedrohung wurde nie validiert.
+
+**Nach den drei Tasks oben Phase-Wechsel zu Analyse-Mode:**
+
+1. **Hotel-Test** als kontrollierter Real-World-Validator
+2. Wenn sauber -> **v2.1.0 taggen** als "stable fuer gezielte Sessions"
+3. **Daten-Cleanup**: alte Reports/PCAPs vor 15.05. archivieren,
+   API-Keys rotieren (waren im Chat exposed)
+4. **Attack-Surface-DB** (SQLite, persistent ueber Sessions) statt
+   neue alpha-Features
+5. **Jupyter / Web-UI** fuer cross-session Trend-Analyse
+
+Begruendung: aktuelles Tool ist gut genug fuer den Use-Case
+"gezielte Session" (Hotel-Audit, Drive, Verdachts-Check). Es ist
+NICHT gut genug als 24/7-Hintergrund-Schutz und das ist auch
+statistisch nicht noetig in der aktuellen Wohnsituation.
+
+---
+
+## Heim-Setup (15.05.)
+
+- **Heim-Router**: TP-Link Archer Wi-Fi 6E
+  SSIDs: `TP-Link_A3F2_2G` + `TP-Link_A3F2_6G`
+  Admin: `http://tplinkwifi.net` oder `192.168.0.1`/`192.168.1.1`
+- **Mudi V2 (GL-iNet)**: SSID `output_nomap`, Ch 6 2.4 GHz
+  Nur Pager assoziiert. Internet via LTE/BITE Lietuva.
+- **LG Smart-Refrigerator**: eigenes WLAN-Modul `[LG_Refrigerator]cc01`
+  Harmlos. Smart-Home-Geraet.
+- **Bekannte BLE-Geraete im Haushalt** (in ignore_list, 53 entries):
+  - Pager self (WiFi + BT-HCI), Mudi-MACs
+  - Samsung TVs (3 Geraete, mehrere Rotations-Adressen)
+  - Onkel Sam Laptop (Intel Wi-Fi 6E)
+  - Xiaomi-Phone (eigenes)
+  - Espressif-Stalker (nicht meiner, ignoriert)
+  - Plus ~40 weitere BLE-Privacy-Adressen aus aelteren Scans
+  Echte MAC-Werte in `/root/loot/argus/ignore_lists/mac_list.json`
+  (gitignored, OPSEC).
+
+---
+
+### Stand 15.05. - Heim-Setup-Korrektur + alpha10.x Fixes
+
+(Siehe unten im chronologischen Block)
+
+---
+
+## Aktuelle Commit-Kette (origin/main)
+
+```
+3bb9d69  docs: TP-Link statt FritzBox, LG-Fridge, Intel-Laptop identifiziert
+1635a93  fix(finder/sweep): ignore-list + WiFi AGE_OUT + Scroll-bound-check
+975aac8  gps: indoor-tolerantere Sticky-Schwellen + gps_health.sh
+b5b9e6d  payload: endurance-monitor auto-start + auto-cleanup
+fa4abae  alpha10.1: bt_scanner blocking-read fix (Endurance-Hotfix)
+5e2b00d  docs: README hardware-img -> hardware.JPG case-fix
+24c559f  Merge origin/main (hardware.JPG upload via web)
+c11adfe  Add files via upload (hardware-Foto)
+b245d34  endurance: payload.sh timeout 4h -> 6h + monitor-script
+59dbaac  v2.1.0-alpha10: BT MSD-subtype classification
+9d7eecc  fix(cell_anomaly): H4 GPS-aware
+cb6874e  fix: cell_neighbors nutzt neighbor_cells.py (live count)
+0c1b107  v2.1.0-alpha9: offline OpenCelliD + weak-signal anomaly fix
+2bdc2d8  v2.1.0-alpha8: cellular anomaly detection (neighbour cells)
+1d5139b  v2.1.0-alpha7: argus-probe (BT-GATT)
+a5addd4  v2.1.0-alpha6: address-type aware BT tracker detection
+9ea14e5  v2.1.0-alpha5: finder sweep mode
+479f2f3  v2.1.0-alpha4: argus finder + probe-request RSSI
+f6bfef7  v2.1.0-alpha3: simplified UX, sensor pipeline, external intel
+```
+
+cyt-Submodule HEAD: `0b70048`. raypager-Submodule HEAD: `fa3114b`.
 
 ### Stand 10.05. — Argus Finder + Probe-RSSI + Heim-Run
 
