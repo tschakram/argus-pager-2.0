@@ -16,6 +16,14 @@ import glob
 import json
 import os
 import re
+import sys
+
+# Bootstrap cyt/python to sys.path for mac_ignore import
+_CYT_PY = os.path.normpath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "..", "cyt", "python"))
+if _CYT_PY not in sys.path:
+    sys.path.insert(0, _CYT_PY)
+from mac_ignore import MacIgnoreSet
 
 DEFAULT_LOOT = "/root/loot/argus"
 CYT_LOOT     = "/root/loot/chasing_your_tail"
@@ -32,19 +40,23 @@ _SESSION_RE   = re.compile(r'^\*\*Session:\*\*\s*`?(\d{8}_\d{6})`?', re.MULTILIN
 _BT_FILENAME  = re.compile(r'bt_(\d{8}_\d{6})_r\d+_\d+\.json$')
 
 
-def _load_ignore(loot_dir: str) -> set[str]:
+def _load_ignore(loot_dir: str) -> MacIgnoreSet:
+    """Liest ignore_macs aus mac_list.json - inkl. Wildcard-Patterns
+    (siehe cyt/python/mac_ignore.py). Wildcards wie "aa:bb:cc:dd:ee:??"
+    erfassen BLE-Privacy-Rotation (Samsung TV / iPhone Continuity).
+    """
     candidates = [
         os.path.join(loot_dir, "ignore_lists", "mac_list.json"),
         os.path.join(CYT_LOOT, "ignore_lists", "mac_list.json"),
     ]
-    out: set[str] = set()
+    out = MacIgnoreSet()
     for p in candidates:
         if not os.path.exists(p):
             continue
         try:
             with open(p) as fh:
                 data = json.load(fh)
-            out.update(m.upper() for m in data.get("ignore_macs", []))
+            out.update(data.get("ignore_macs", []))
         except Exception:
             pass
     return out

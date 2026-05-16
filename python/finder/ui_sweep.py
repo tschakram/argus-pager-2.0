@@ -11,9 +11,17 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 
 from ui import theme as T
+
+# Bootstrap cyt/python to sys.path for mac_ignore import
+_CYT_PY = os.path.normpath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "..", "cyt", "python"))
+if _CYT_PY not in sys.path:
+    sys.path.insert(0, _CYT_PY)
+from mac_ignore import MacIgnoreSet
 
 try:
     from pagerctl import BTN_A, BTN_B, BTN_LEFT, BTN_UP, BTN_DOWN, BTN_POWER
@@ -40,17 +48,19 @@ _IGNORE_PATHS = (
 )
 
 
-def _load_ignore_macs() -> set[str]:
-    """Liest ignore_macs aus mac_list.json (lower-case Strings)."""
-    out: set[str] = set()
+def _load_ignore_macs() -> MacIgnoreSet:
+    """Liest ignore_macs aus mac_list.json - inkl. Wildcard-Patterns
+    (siehe cyt/python/mac_ignore.py). Wildcards "aa:bb:cc:dd:ee:??"
+    erfassen BLE-Privacy-Rotation in der Sweep-Liste.
+    """
+    out = MacIgnoreSet()
     for p in _IGNORE_PATHS:
         if not os.path.exists(p):
             continue
         try:
             with open(p) as fh:
                 data = json.load(fh)
-            for m in data.get("ignore_macs", []):
-                out.add(str(m).lower())
+            out.update(data.get("ignore_macs", []))
         except Exception:
             pass
     return out
