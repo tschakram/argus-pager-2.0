@@ -12,64 +12,67 @@ WiFi-/BT-Geräte, IMSI-Catcher und Silent-SMS während man sich bewegt.
 
 ---
 
-## Aktueller Stand (15.05.2026)
+## Aktueller Stand (16.05.2026)
 
 - Repo: `github.com/tschakram/argus-pager-2.0`
-- **HEAD `3bb9d69`** (origin/main) - alle alpha10.x Fixes gepushed
+- **HEAD `e3eed09`** (origin/main) - Task 2 (BLE-Pattern-Whitelist) gepushed
 - Lokaler Pager-Workdir entspricht origin/main
-- cyt-Submodule HEAD `0b70048` (main, gepushed)
+- cyt-Submodule HEAD `8558238` (main, gepushed - mac_ignore + Loader-Refactor)
 - raypager-Submodule HEAD `fa3114b` (master, gepushed)
 
 ## NAECHSTE ARBEIT (Start-Reihenfolge)
 
-User-Entscheidung 16.05.: drei Tasks abarbeiten, dann Pivot.
+User-Entscheidung 16.05.: drei Tasks geplant, davon Task 1 obsolet,
+Task 2 erledigt. Naechste konkrete Arbeit ist Task 3 oder Pivot.
 
-### Task 1: cyt-Patches als Upstream-PRs
+### ~~Task 1: cyt-Patches als Upstream-PRs~~ OBSOLET (16.05.)
 
-Unsere cyt/-Patches im `tschakram/chasing-your-tail-pager` Fork
-sollten zum echten Upstream (RocketGod-Original) als PRs:
+Annahme war: unser cyt-Fork basiert auf einem echten Upstream
+(RocketGod-Original). Recherche 16.05. zeigte:
 
-| Commit  | Was                                              | PR-Wert |
-|---------|--------------------------------------------------|---------|
-| 0b70048 | bt_scanner select()-non-blocking + robust kill  | HOCH (echter Bug) |
-| c725116 | Apple/Samsung MSD-Subtype-Klassifikation        | HOCH (Tracker-False-Positive-Fix) |
-| ad97be0 | address-type aware fingerprint (Public/RPA)     | HOCH |
-| 5ac365c | probe-request RSSI in pcap_engine               | MEDIUM (feature) |
-| (alt)   | oui_lookup TTL 7->365                            | LOW (controversial) |
-| (alt)   | bt_scanner BT_SCANNER_NO_LOCAL_GPS env          | LOW (pager-spezifisch) |
+- RocketGod-git hat **null** chasing-Repos
+- ArgeliusLabs/Chasing-Your-Tail-NG (2260 stars) hat KEIN python/
+  Verzeichnis, kein bt_scanner.py, kein bt_fingerprint.py, kein
+  pcap_engine.py - das ist eine voellig andere Architektur
+- GitHub-Code-Search nach "bt_fingerprint.py" -> 0 Treffer
+- File-Header sagen "Pineapple Pager Edition" / "v4.4/v4.5" - **Eigen-Code**
 
-Schritte:
-1. Echtes Upstream-Repo identifizieren (RocketGod/chasing-your-tail-ng?)
-2. Pro PR ein clean topic-branch
-3. Commit-Message reformulieren (englisch, generic, ohne Pager-Bezug)
-4. Test-Cases beilegen wo moeglich
-5. PR submitten
+Damit gibt es keinen externen Upstream, an den PRs gehen koennten.
+Unsere Patches sind schon im "Upstream" (= unser eigener Fork
+tschakram/chasing-your-tail-pager). Task gestrichen.
 
-### Task 2: BLE-Privacy-Pattern-Whitelist
+### Task 2: BLE-Privacy-Pattern-Whitelist - DONE (16.05.)
 
-Aktuell: ignore_list haelt 53 exact-MAC-eintraege. Samsung TVs
-rotieren ihre BLE-Adresse ~alle 15 Min - jede neue Adresse wird
-wieder als verdaechtig geflaggt bis User sie ergaenzt.
+Implementiert in cyt 8558238 + argus e3eed09.
 
-Loesung: Pattern-Matching in ignore-list. Format (Beispiel mit
-Placeholder-OUIs, echte werden user-side ergaenzt):
-```json
-"ignore_macs": [
-    "<oui-A>:<rest>:??",     // alle 256 Variants Sektor A
-    "<oui-B>:<rest>:??",     // Sektor B
-    ...exact_macs...
-]
+Was kam:
+- Neue Datei `cyt/python/mac_ignore.py` mit Klasse `MacIgnoreSet`
+- Drop-in fuer set[str]; aeltere call-sites "mac in ignore" funktionieren
+- Exact-MACs O(1) ueber set, Patterns linear via fnmatch
+- Wildcards: `?` (1 hex char), `??` (1 hex byte), `*` (rest), `[..]` (class)
+- Case-insensitive
+
+5 Loader umgestellt auf `MacIgnoreSet`:
+- cyt: analyze_pcap.load_ignore_lists, chasing_your_tail.load_ignore_lists,
+  hotel_scan inline-loader
+- argus: python/finder/target_loader._load_ignore,
+  python/finder/ui_sweep._load_ignore_macs (mit sys.path bootstrap zum cyt)
+
+Doku: ignore_lists/mac_list.example.json hat inline _doc + 3 Beispiele
+(1 exact, 2 patterns).
+
+Tests: 8/8 E2E gruen (UPPER, lower, mixed case, 1-byte + 2-byte Patterns,
+negatives). 6/6 Files compile-checked.
+
+Migration fuer User: bestehende 53 exact-MACs in
+`/root/loot/argus/ignore_lists/mac_list.json` koennen so bleiben oder
+schrittweise durch Patterns ersetzt werden. Beispiel:
+```
+"70:b1:3d:ab:74:??"   ersetzt alle Samsung-TV-Rotations-Adressen
+"<intel-oui>:??:??:??" ersetzt alle Intel-Laptop-randomized-Probes
 ```
 
-Implementation:
-- `target_loader._load_ignore()` parst Patterns mit `??`
-- `ui_sweep._load_ignore_macs()` dito
-- `bt_fingerprint`/`analyze_pcap` mac-matching mit fnmatch oder regex
-- Migration: bestehende exact-MACs koennen bleiben
-
-Acceptance:
-- 3 TV-Patterns ersetzen ~10 exact-eintraege
-- Naechster Argus-Run flaggt KEINE neue Samsung-TV-Rotation
+Live-Test gegen Samsung-TV-Rotation steht aus (naechster Argus-Run).
 
 ### Task 3: DHCP-Fingerprint-Extraktion
 
